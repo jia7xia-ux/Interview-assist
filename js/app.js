@@ -44,10 +44,17 @@ function renderResumeBankInputs() {
     
     container.innerHTML = state.resumes.map(r => `
         <div class="mb-4 p-3 border border-zinc-200 rounded-lg bg-zinc-50">
-            <label class="block text-xs font-semibold text-zinc-600 mb-1">
-                <input type="text" value="${r.name}" onchange="updateResumeName('${r.id}', this.value)" class="bg-transparent border-b border-transparent hover:border-zinc-300 font-bold focus:outline-none text-zinc-800">
-            </label>
-            <textarea rows="4" placeholder="粘贴该版本的简历文本内容..." onchange="updateResumeContent('${r.id}', this.value)" class="w-full mt-1 p-2 border border-zinc-200 rounded text-xs focus:outline-none font-mono">${r.content || ''}</textarea>
+            <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-semibold text-zinc-600 flex-1">
+                    <input type="text" value="${r.name}" onchange="updateResumeName('${r.id}', this.value)" class="bg-transparent border-b border-transparent hover:border-zinc-300 font-bold focus:outline-none text-zinc-800 w-full">
+                </label>
+                <label class="ml-2 shrink-0 px-2.5 py-1 bg-zinc-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-zinc-700 transition">
+                    📄 上传 PDF
+                    <input type="file" accept="application/pdf" class="hidden" onchange="handleResumePdfUpload('${r.id}', this)">
+                </label>
+            </div>
+            <p id="pdf-status-${r.id}" class="text-[10px] text-zinc-400 mb-1"></p>
+            <textarea rows="4" placeholder="粘贴该版本的简历文本内容，或点击右上角上传 PDF 自动填入..." onchange="updateResumeContent('${r.id}', this.value)" class="w-full mt-1 p-2 border border-zinc-200 rounded text-xs focus:outline-none font-mono">${r.content || ''}</textarea>
         </div>
     `).join('');
 
@@ -63,6 +70,49 @@ function renderResumeBankInputs() {
         </label>
     `).join('');
 }
+// 配置 pdf.js worker（CDN 版本需手动指定，否则会报错）
+if (window['pdfjsLib']) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+window.handleResumePdfUpload = async (resumeId, inputEl) => {
+    const file = inputEl.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById(`pdf-status-${resumeId}`);
+    if (statusEl) statusEl.innerText = `⏳ 正在解析「${file.name}」...`;
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += pageText + '\n\n';
+        }
+
+        fullText = fullText.trim();
+
+        if (!fullText) {
+            if (statusEl) statusEl.innerText = `⚠️ 未能提取到文字，该 PDF 可能是图片扫描版，请手动粘贴文本。`;
+            return;
+        }
+
+        // 更新状态并填入文本框
+        state.resumes = state.resumes.map(r => r.id === resumeId ? { ...r, content: fullText } : r);
+        localStorage.setItem('interview_prep_resumes', JSON.stringify(state.resumes));
+        
+        if (statusEl) statusEl.innerText = `✅ 已从「${file.name}」提取 ${fullText.length} 字`;
+        renderResumeBankInputs();
+
+    } catch (err) {
+        console.error('PDF解析失败:', err);
+        if (statusEl) statusEl.innerText = `❌ 解析失败: ${err.message}`;
+    }
+};
 
 window.updateResumeName = (id, newName) => {
     state.resumes = state.resumes.map(r => r.id === id ? { ...r, name: newName } : r);
