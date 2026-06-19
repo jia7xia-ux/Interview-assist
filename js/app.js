@@ -308,14 +308,21 @@ function setupEventListeners() {
     document.getElementById('btn-run-pipeline').addEventListener('click', runFullPipeline);
 
     const tabs = document.querySelectorAll('.tab-btn');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
-            tab.classList.add('border-zinc-900', 'text-zinc-900');
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-            document.getElementById(`tab-panel-${tab.dataset.tab}`).classList.remove('hidden');
-        });
+tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
+        tab.classList.add('border-zinc-900', 'text-zinc-900');
+
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        const target = document.getElementById(`tab-panel-${tab.dataset.tab}`);
+        target.classList.remove('hidden');
+
+        // restart the entrance animation every click, even on the same tab
+        target.style.animation = 'none';
+        void target.offsetWidth; // force reflow
+        target.style.animation = '';
     });
+});
 }
 
 window.copyTabContent = (panelId) => {
