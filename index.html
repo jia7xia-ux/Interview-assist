@@ -194,12 +194,15 @@
                 <!-- 右侧：AI 生成结果输出面板 -->
                 <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col">
                     <!-- 轻量级仪表盘标签页组件 -->
-                    <div class="border-b border-stone-200/60 bg-stone-50/40 p-2 rounded-t-3xl flex flex-wrap gap-1">
-                        <button data-tab="match" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">📊 简历对齐与测算</button>
-                        <button data-tab="business" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🧱 商业价值链拆解</button>
-                        <button data-tab="intro" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎙️ 口语自述演练</button>
-                        <button data-tab="star" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎯 专属 STAR 故事库</button>
-                        <button data-tab="qa" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">💡 突发案例与反问</button>
+                    <div class="border-b border-stone-200/60 bg-stone-50/40 p-2 rounded-t-3xl flex flex-wrap items-center justify-between gap-1">
+                        <div class="flex flex-wrap gap-1">
+                            <button data-tab="match" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">📊 简历对齐与测算</button>
+                            <button data-tab="business" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🧱 商业价值链拆解</button>
+                            <button data-tab="intro" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎙️ 口语自述演练</button>
+                            <button data-tab="star" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎯 专属 STAR 故事库</button>
+                            <button data-tab="qa" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">💡 突发案例与反问</button>
+                        </div>
+                        <button onclick="clearActiveSessionResults()" class="px-3 py-1.5 text-[10px] font-bold text-stone-400 hover:text-rose-600 rounded-full transition cursor-pointer">🗑️ 清空当前结果</button>
                     </div>
 
                     <div class="flex-1 p-6 overflow-y-auto max-h-[750px]">
@@ -316,7 +319,10 @@
                 <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col min-h-[500px]">
                     <div class="border-b border-stone-200/60 bg-stone-50/40 px-6 py-3.5 rounded-t-3xl flex justify-between items-center">
                         <span class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📊 AI 首席面试官无情复盘报告</span>
-                        <button onclick="copyTabContent('debrief-report-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制全盘报告</button>
+                        <div class="flex items-center gap-2">
+                            <button onclick="clearDebriefResults()" class="text-[10px] text-stone-400 hover:text-rose-600 rounded-full px-3 py-1 transition cursor-pointer">🗑️ 清空报告</button>
+                            <button onclick="copyTabContent('debrief-report-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制全盘报告</button>
+                        </div>
                     </div>
                     <div class="flex-1 p-6 overflow-y-auto max-h-[750px] prose max-w-none">
                         <div id="debrief-initial-state" class="h-full flex flex-col items-center justify-center text-center py-24 text-stone-400">
