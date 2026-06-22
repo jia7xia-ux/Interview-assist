@@ -233,7 +233,7 @@ function renderApplications() {
     if (!tbody) return;
 
     if (state.applications.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-zinc-400 italic">暂无投递记录，快在左侧添加你的第一个秋招意向吧！</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-zinc-400 italic">暂无投递记录，快在左侧添加你的第一个秋招意向吧！</td></tr>`;
         if (statsContainer) statsContainer.innerHTML = "总计: 0";
         return;
     }
@@ -241,11 +241,15 @@ function renderApplications() {
     const sortedApps = [...state.applications].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     tbody.innerHTML = sortedApps.map(app => {
+        const linkCell = app.link
+            ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-500 hover:text-rose-700 transition" title="${app.link}">🔗</a>`
+            : `<span class="text-stone-300">—</span>`;
         return `
             <tr class="border-b border-zinc-100 hover:bg-zinc-50/50 transition">
                 <td class="p-3 font-mono text-[11px] text-zinc-400">${app.date}</td>
                 <td class="p-3 font-bold text-zinc-800">${app.company}</td>
                 <td class="p-3 text-zinc-600">${app.role}</td>
+                <td class="p-3 text-center">${linkCell}</td>
                 <td class="p-3">
                     <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white font-medium ${getStatusColorClass(app.status)}">
                         <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
@@ -417,6 +421,7 @@ function setupEventListeners() {
     document.getElementById('btn-add-track').addEventListener('click', () => {
         const company = document.getElementById('track-company').value.trim();
         const role = document.getElementById('track-role').value.trim();
+        const link = document.getElementById('track-link').value.trim();
         const date = document.getElementById('track-date').value;
         const status = document.getElementById('track-status').value;
         const jd = document.getElementById('track-jd').value.trim();
@@ -426,12 +431,13 @@ function setupEventListeners() {
             return;
         }
 
-        const newApp = { id: 'app_' + Date.now(), company, role, date, status, jd };
+        const newApp = { id: 'app_' + Date.now(), company, role, link, date, status, jd };
         state.applications.push(newApp);
         localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
 
         document.getElementById('track-company').value = '';
         document.getElementById('track-role').value = '';
+        document.getElementById('track-link').value = '';
         document.getElementById('track-jd').value = '';
         
         renderApplications();
