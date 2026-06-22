@@ -10,8 +10,10 @@ let state = {
         { id: 'resume_c', name: '简历版本 C (例如：数据分析方向)', content: '' }
     ],
     applications: [], 
+    events: [], // 🌟 新增：秋招日程数组 { id, appId, title, date, startTime, endTime, type, notes }
     activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} },
-    activeAppId: null // 🌟 新增：标记当前工作台会话绑定的看板记录 id（null 表示自由模式，不挂载到任何投递记录）
+    activeAppId: null, // 🌟 新增：标记当前工作台会话绑定的看板记录 id（null 表示自由模式，不挂载到任何投递记录）
+    calendarViewDate: new Date() // 🌟 新增：日历当前展示的月份（用于上下月切换）
 };
 
 function initApp() {
@@ -22,6 +24,9 @@ function initApp() {
     
     const savedApps = localStorage.getItem('interview_prep_apps');
     if (savedApps) state.applications = JSON.parse(savedApps);
+
+    const savedEvents = localStorage.getItem('interview_prep_events');
+    if (savedEvents) state.events = JSON.parse(savedEvents);
 
     // 🌟 新增：恢复上一次生成的备战会话（公司/岗位/JD/五份报告）
     const savedSession = localStorage.getItem('interview_prep_active_session');
@@ -50,6 +55,8 @@ function initApp() {
     checkApiKeyStatus();
     restoreActiveSessionToUI(); // 🌟 新增：把恢复的工作台会话渲染回页面
     restoreDebriefSessionToUI(); // 🌟 新增：把恢复的录音复盘会话渲染回页面
+    renderCalendar(); // 🌟 新增：渲染日历月视图
+    renderUpcomingEvents(); // 🌟 新增：渲染近期日程列表
 }
 
 // 🌟 新增：把上次的录音复盘结果渲染回界面
@@ -279,6 +286,7 @@ function renderApplications() {
                 </td>
                 <td class="p-3 text-center flex items-center justify-center gap-2">
                     ${prepBtn}
+                    <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="为这条记录添加日程">📅</button>
                     <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
                 </td>
             </tr>
@@ -311,7 +319,14 @@ window.deleteApp = (id) => {
     if (!confirm('确定要删除这条投递记录吗？')) return;
     state.applications = state.applications.filter(a => a.id !== id);
     localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+
+    // 解除该记录关联的所有日程（日程本身保留，只是不再关联到已删除的投递记录）
+    state.events = state.events.map(e => e.appId === id ? { ...e, appId: '' } : e);
+    saveEvents();
+
     renderApplications();
+    renderCalendar();
+    renderUpcomingEvents();
 };
 
 window.activateAppForPrep = (id) => {
@@ -359,14 +374,16 @@ window.activateAppForPrep = (id) => {
     }
 };
 
-// ================= 三视图核心切换开关 =================
+// ================= 四视图核心切换开关 =================
 function switchView(viewName) {
     const wsNav = document.getElementById('nav-workspace');
     const trNav = document.getElementById('nav-tracker');
+    const calNav = document.getElementById('nav-calendar');
     const dbNav = document.getElementById('nav-debrief');
 
     const wsView = document.getElementById('view-workspace');
     const trView = document.getElementById('view-tracker');
+    const calView = document.getElementById('view-calendar');
     const dbView = document.getElementById('view-debrief');
 
     // 清洗类名
@@ -375,10 +392,12 @@ function switchView(viewName) {
 
     wsView.classList.add('hidden');
     trView.classList.add('hidden');
+    calView.classList.add('hidden');
     dbView.classList.add('hidden');
 
     wsNav.className = inactiveClass;
     trNav.className = inactiveClass;
+    calNav.className = inactiveClass;
     dbNav.className = inactiveClass;
 
     if (viewName === 'workspace') {
@@ -388,11 +407,256 @@ function switchView(viewName) {
         trView.classList.remove('hidden');
         trNav.className = activeClass;
         renderApplications();
+    } else if (viewName === 'calendar') {
+        calView.classList.remove('hidden');
+        calNav.className = activeClass;
+        renderCalendar();
+        renderUpcomingEvents();
     } else if (viewName === 'debrief') {
         dbView.classList.remove('hidden');
         dbNav.className = activeClass;
     }
 }
+
+// ================= 🌟 新增：秋招日程日历模块 =================
+
+const EVENT_TYPE_CLASS = { '面试': 'type-interview', '笔试': 'type-oa', '其他': 'type-other' };
+const EVENT_TYPE_ICON = { '面试': '🎙️', '笔试': '📝', '其他': '📌' };
+
+function saveEvents() {
+    localStorage.setItem('interview_prep_events', JSON.stringify(state.events));
+}
+
+function formatDateKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+// 判断两个时间段是否重叠（同一天内）。没有填开始时间的日程不参与冲突检测。
+function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
+    if (!aStart || !bStart) return false;
+    const aS = aStart, aE = aEnd && aEnd > aStart ? aEnd : aStart;
+    const bS = bStart, bE = bEnd && bEnd > bStart ? bEnd : bStart;
+    return aS < bE && bS < aE;
+}
+
+// 找出某一天里互相冲突的事件 id 集合
+function getConflictingEventIdsForDate(dateKey) {
+    const dayEvents = state.events.filter(e => e.date === dateKey);
+    const conflictIds = new Set();
+    for (let i = 0; i < dayEvents.length; i++) {
+        for (let j = i + 1; j < dayEvents.length; j++) {
+            const a = dayEvents[i], b = dayEvents[j];
+            if (timeRangesOverlap(a.startTime, a.endTime, b.startTime, b.endTime)) {
+                conflictIds.add(a.id);
+                conflictIds.add(b.id);
+            }
+        }
+    }
+    return conflictIds;
+}
+
+function renderCalendar() {
+    const grid = document.getElementById('calendar-grid');
+    const label = document.getElementById('cal-month-label');
+    if (!grid || !label) return;
+
+    const viewDate = state.calendarViewDate;
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth(); // 0-indexed
+
+    label.innerText = `${year} 年 ${month + 1} 月`;
+
+    const firstOfMonth = new Date(year, month, 1);
+    // JS getDay(): 0=周日...6=周六。我们的表头是 一二三四五六日，所以要把周一作为第一列
+    const firstWeekdayMon0 = (firstOfMonth.getDay() + 6) % 7; // 0=周一
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const today = new Date();
+    const todayKey = formatDateKey(today);
+
+    let cells = [];
+
+    // 上月填充格
+    for (let i = 0; i < firstWeekdayMon0; i++) {
+        const dayNum = daysInPrevMonth - firstWeekdayMon0 + i + 1;
+        cells.push({ dayNum, otherMonth: true });
+    }
+    // 本月格
+    for (let d = 1; d <= daysInMonth; d++) {
+        cells.push({ dayNum: d, otherMonth: false, dateObj: new Date(year, month, d) });
+    }
+    // 下月填充格，补齐到 7 的整数倍
+    while (cells.length % 7 !== 0) {
+        const dayNum = cells.length - (firstWeekdayMon0 + daysInMonth) + 1;
+        cells.push({ dayNum, otherMonth: true });
+    }
+
+    grid.innerHTML = cells.map(cell => {
+        if (cell.otherMonth) {
+            return `<div class="cal-day cal-day-other-month"><span class="cal-day-number" style="color:#d6d3d1;">${cell.dayNum}</span></div>`;
+        }
+        const dateKey = formatDateKey(cell.dateObj);
+        const isToday = dateKey === todayKey;
+        const dayEvents = state.events.filter(e => e.date === dateKey)
+            .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+        const conflictIds = getConflictingEventIdsForDate(dateKey);
+
+        const pillsHtml = dayEvents.slice(0, 3).map(e => {
+            const typeClass = EVENT_TYPE_CLASS[e.type] || 'type-other';
+            const conflictClass = conflictIds.has(e.id) ? 'has-conflict' : '';
+            const timeLabel = e.startTime ? e.startTime : '';
+            return `<div class="cal-event-pill ${typeClass} ${conflictClass}" onclick="openEventModal('${e.id}')" title="${e.title}${conflictIds.has(e.id) ? ' ⚠️ 时间冲突' : ''}">${timeLabel ? timeLabel + ' ' : ''}${EVENT_TYPE_ICON[e.type] || ''} ${e.title}</div>`;
+        }).join('');
+        const moreLabel = dayEvents.length > 3 ? `<div class="text-[9px] text-stone-400 px-1">+${dayEvents.length - 3} 更多</div>` : '';
+
+        return `
+            <div class="cal-day ${isToday ? 'cal-day-today' : 'cal-day-current'}">
+                <span class="cal-day-number">${cell.dayNum}</span>
+                ${pillsHtml}
+                ${moreLabel}
+            </div>
+        `;
+    }).join('');
+}
+
+function renderUpcomingEvents() {
+    const container = document.getElementById('upcoming-events-list');
+    if (!container) return;
+
+    const todayKey = formatDateKey(new Date());
+    const upcoming = [...state.events]
+        .filter(e => e.date >= todayKey)
+        .sort((a, b) => (a.date + (a.startTime || '00:00')).localeCompare(b.date + (b.startTime || '00:00')));
+
+    if (upcoming.length === 0) {
+        container.innerHTML = `<p class="text-xs text-stone-400 italic text-center py-6">暂无即将到来的日程，点击上方按钮添加吧！</p>`;
+        return;
+    }
+
+    container.innerHTML = upcoming.map(e => {
+        const conflictIds = getConflictingEventIdsForDate(e.date);
+        const isConflict = conflictIds.has(e.id);
+        const linkedApp = e.appId ? state.applications.find(a => a.id === e.appId) : null;
+        const timeRange = e.startTime ? (e.endTime ? `${e.startTime} - ${e.endTime}` : e.startTime) : '时间未定';
+
+        return `
+            <div class="upcoming-event-card ${isConflict ? 'has-conflict' : ''} cursor-pointer" onclick="openEventModal('${e.id}')">
+                <div class="flex justify-between items-start gap-2">
+                    <span class="text-xs font-bold text-stone-800">${EVENT_TYPE_ICON[e.type] || ''} ${e.title}</span>
+                    ${isConflict ? '<span class="text-[10px] text-red-600 font-bold shrink-0">⚠️ 时间冲突</span>' : ''}
+                </div>
+                <div class="text-[10px] text-stone-500 mt-1 font-mono">${e.date} · ${timeRange}</div>
+                ${linkedApp ? `<div class="text-[10px] text-rose-500 mt-1 font-semibold">🔗 关联: ${linkedApp.company} - ${linkedApp.role}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// 填充"关联看板投递记录"下拉框选项
+function populateEventAppLinkOptions(selectedAppId) {
+    const select = document.getElementById('event-app-link');
+    if (!select) return;
+    const options = ['<option value="">— 不关联任何记录 —</option>']
+        .concat(state.applications.map(a => `<option value="${a.id}" ${a.id === selectedAppId ? 'selected' : ''}>${a.company} - ${a.role}</option>`));
+    select.innerHTML = options.join('');
+}
+
+// 🌟 新增：从看板某条记录跳转到日历，打开新增日程弹窗并预先关联该记录
+window.openEventModalForApp = (appId) => {
+    switchView('calendar');
+    openEventModal(null);
+    const select = document.getElementById('event-app-link');
+    if (select) select.value = appId;
+    const app = state.applications.find(a => a.id === appId);
+    if (app) document.getElementById('event-title').value = `${app.company} - ${app.role}`;
+};
+
+// 打开新增日程弹窗（不传 eventId）或编辑已有日程（传 eventId）
+window.openEventModal = (eventId) => {
+    const modal = document.getElementById('event-modal');
+    const titleEl = document.getElementById('event-modal-title');
+    const deleteBtn = document.getElementById('btn-delete-event');
+
+    if (eventId) {
+        const ev = state.events.find(e => e.id === eventId);
+        if (!ev) return;
+        titleEl.innerText = '✏️ 编辑日程';
+        document.getElementById('event-edit-id').value = ev.id;
+        document.getElementById('event-title').value = ev.title || '';
+        document.getElementById('event-date').value = ev.date || '';
+        document.getElementById('event-type').value = ev.type || '面试';
+        document.getElementById('event-start-time').value = ev.startTime || '';
+        document.getElementById('event-end-time').value = ev.endTime || '';
+        document.getElementById('event-notes').value = ev.notes || '';
+        populateEventAppLinkOptions(ev.appId || '');
+        deleteBtn.classList.remove('hidden');
+    } else {
+        titleEl.innerText = '📅 新增面试/笔试日程';
+        document.getElementById('event-edit-id').value = '';
+        document.getElementById('event-title').value = '';
+        document.getElementById('event-date').value = formatDateKey(new Date());
+        document.getElementById('event-type').value = '面试';
+        document.getElementById('event-start-time').value = '';
+        document.getElementById('event-end-time').value = '';
+        document.getElementById('event-notes').value = '';
+        populateEventAppLinkOptions('');
+        deleteBtn.classList.add('hidden');
+    }
+    modal.classList.remove('hidden');
+};
+
+window.closeEventModal = () => {
+    document.getElementById('event-modal').classList.add('hidden');
+};
+
+window.saveEventFromModal = () => {
+    const id = document.getElementById('event-edit-id').value;
+    const title = document.getElementById('event-title').value.trim();
+    const date = document.getElementById('event-date').value;
+    const type = document.getElementById('event-type').value;
+    const startTime = document.getElementById('event-start-time').value;
+    const endTime = document.getElementById('event-end-time').value;
+    const appId = document.getElementById('event-app-link').value;
+    const notes = document.getElementById('event-notes').value.trim();
+
+    if (!title || !date) {
+        alert('请至少填写日程标题和日期！');
+        return;
+    }
+
+    if (id) {
+        state.events = state.events.map(e => e.id === id ? { ...e, title, date, type, startTime, endTime, appId, notes } : e);
+    } else {
+        state.events.push({ id: 'evt_' + Date.now(), title, date, type, startTime, endTime, appId, notes });
+    }
+    saveEvents();
+    closeEventModal();
+    renderCalendar();
+    renderUpcomingEvents();
+};
+
+window.deleteEventFromModal = () => {
+    const id = document.getElementById('event-edit-id').value;
+    if (!id) return;
+    if (!confirm('确定要删除这条日程吗？')) return;
+    state.events = state.events.filter(e => e.id !== id);
+    saveEvents();
+    closeEventModal();
+    renderCalendar();
+    renderUpcomingEvents();
+};
+
+function changeCalendarMonth(offset) {
+    const d = state.calendarViewDate;
+    state.calendarViewDate = new Date(d.getFullYear(), d.getMonth() + offset, 1);
+    renderCalendar();
+}
+
+// ================= 秋招日程日历模块结束 =================
 
 // 🌟 新增：执行面试录音复盘大模型调用流程
 async function runDebriefPipeline() {
@@ -458,9 +722,18 @@ async function runDebriefPipeline() {
 function setupEventListeners() {
     document.getElementById('nav-workspace').addEventListener('click', () => switchView('workspace'));
     document.getElementById('nav-tracker').addEventListener('click', () => switchView('tracker'));
+    document.getElementById('nav-calendar').addEventListener('click', () => switchView('calendar')); // 新增
     document.getElementById('nav-debrief').addEventListener('click', () => switchView('debrief')); // 新增
 
     document.getElementById('btn-run-debrief').addEventListener('click', runDebriefPipeline); // 新增
+
+    // 🌟 新增：日程日历相关事件绑定
+    document.getElementById('btn-cal-prev').addEventListener('click', () => changeCalendarMonth(-1));
+    document.getElementById('btn-cal-next').addEventListener('click', () => changeCalendarMonth(1));
+    document.getElementById('btn-add-event').addEventListener('click', () => openEventModal(null));
+    document.getElementById('btn-close-event-modal').addEventListener('click', closeEventModal);
+    document.getElementById('btn-save-event').addEventListener('click', saveEventFromModal);
+    document.getElementById('btn-delete-event').addEventListener('click', deleteEventFromModal);
 
     // 看板录入
     document.getElementById('btn-add-track').addEventListener('click', () => {
