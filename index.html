@@ -88,6 +88,66 @@
             }
         }
         /* ===================== 动态交互效果新增区结束 ===================== */
+        /* ===================== 日历视图样式新增区 ===================== */
+        .cal-day {
+            min-height: 84px;
+            border-radius: 12px;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            transition: background-color 0.15s ease;
+        }
+        .cal-day.cal-day-current {
+            background-color: #fafaf9;
+            border: 1px solid #e7e5e4;
+        }
+        .cal-day.cal-day-other-month {
+            background-color: transparent;
+        }
+        .cal-day.cal-day-today {
+            border: 1.5px solid #f43f5e;
+            background-color: #fff1f2;
+        }
+        .cal-day-number {
+            font-size: 10px;
+            font-weight: 700;
+            color: #78716c;
+            padding: 1px 4px;
+        }
+        .cal-day.cal-day-today .cal-day-number {
+            color: #e11d48;
+        }
+        .cal-event-pill {
+            font-size: 9.5px;
+            font-weight: 600;
+            padding: 2px 5px;
+            border-radius: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        .cal-event-pill:hover {
+            transform: translateX(1px);
+        }
+        .cal-event-pill.type-interview { background-color: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
+        .cal-event-pill.type-oa { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .cal-event-pill.type-other { background-color: #f5f4f0; color: #57534e; border: 1px solid #e1e0da; }
+        .cal-event-pill.has-conflict { border: 1.5px solid #dc2626 !important; box-shadow: 0 0 0 1px #dc2626 inset; }
+
+        .upcoming-event-card {
+            border: 1px solid #e7e5e4;
+            border-radius: 14px;
+            padding: 10px 12px;
+            background-color: #fafaf9;
+        }
+        .upcoming-event-card.has-conflict {
+            border-color: #fca5a5;
+            background-color: #fef2f2;
+        }
+        /* ===================== 日历视图样式新增区结束 ===================== */
     </style>
 </head>
 <body class="text-stone-800 antialiased selection:bg-rose-100 selection:text-rose-900">
@@ -113,6 +173,7 @@
             <nav class="flex bg-stone-100 p-1 rounded-full border border-stone-200/40 shadow-xs">
                 <button id="nav-workspace" class="px-5 py-1.5 rounded-full text-xs font-bold transition bg-white text-stone-900 shadow-xs cursor-pointer">🎯 工作台</button>
                 <button id="nav-tracker" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📋 看板</button>
+                <button id="nav-calendar" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📅 日程</button>
                 <button id="nav-debrief" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📝 录音复盘</button>
             </nav>
 
@@ -285,7 +346,43 @@
                 </section>
             </div>
 
-            <!-- 视图 3：面试录音复盘视图 -->
+            <!-- 视图 3：秋招日程日历视图 -->
+            <div id="view-calendar" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
+                <!-- 左侧：月度导航 + 近期日程列表 -->
+                <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4 h-fit">
+                    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
+                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">⏰ 近期日程一览</h2>
+                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
+                    </div>
+                    <button id="btn-add-event" class="w-full py-2.5 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-sm active:scale-[0.99] cursor-pointer">
+                        ➕ 新增面试/笔试日程
+                    </button>
+                    <div id="upcoming-events-list" class="flex flex-col gap-2.5 max-h-[600px] overflow-y-auto pr-1"></div>
+                </section>
+
+                <!-- 右侧：月视图日历网格 -->
+                <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col">
+                    <div class="border-b border-stone-200/60 bg-stone-50/40 px-6 py-3.5 rounded-t-3xl flex justify-between items-center">
+                        <button id="btn-cal-prev" class="px-3 py-1.5 text-xs font-bold text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-full transition cursor-pointer">← 上月</button>
+                        <span id="cal-month-label" class="text-xs font-bold text-stone-900 uppercase tracking-widest"></span>
+                        <button id="btn-cal-next" class="px-3 py-1.5 text-xs font-bold text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-full transition cursor-pointer">下月 →</button>
+                    </div>
+                    <div class="p-4">
+                        <div class="grid grid-cols-7 gap-1.5 mb-1.5">
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">一</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">二</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">三</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">四</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">五</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">六</div>
+                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">日</div>
+                        </div>
+                        <div id="calendar-grid" class="grid grid-cols-7 gap-1.5"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 视图 4：面试录音复盘视图 -->
             <div id="view-debrief" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
                 <!-- 左侧录音稿贴入 -->
                 <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
@@ -336,6 +433,62 @@
                 </section>
             </div>
         </main>
+    </div>
+
+    <!-- 新增/编辑日程弹窗 -->
+    <div id="event-modal" class="hidden fixed inset-0 bg-stone-950/20 backdrop-blur-md flex items-center justify-center p-4 z-50">
+        <div class="bg-white border border-stone-200/80 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between border-b border-stone-100 pb-3.5 mb-4">
+                <h3 id="event-modal-title" class="text-xs font-bold text-stone-900 uppercase tracking-wider">📅 新增面试/笔试日程</h3>
+                <button id="btn-close-event-modal" class="text-stone-400 hover:text-stone-700 font-bold text-xl cursor-pointer">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5">
+                <input type="hidden" id="event-edit-id" value="">
+                <div>
+                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日程标题</label>
+                    <input type="text" id="event-title" placeholder="例如: TikTok Shop 二面" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日期</label>
+                        <input type="date" id="event-date" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日程类型</label>
+                        <select id="event-type" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                            <option value="面试">🎙️ 面试</option>
+                            <option value="笔试">📝 笔试/测评</option>
+                            <option value="其他">📌 其他</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">开始时间</label>
+                        <input type="time" id="event-start-time" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">结束时间 (选填)</label>
+                        <input type="time" id="event-end-time" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">关联看板投递记录 (选填)</label>
+                    <select id="event-app-link" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                        <option value="">— 不关联任何记录 —</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">备注 (选填)</label>
+                    <textarea id="event-notes" rows="3" placeholder="面试形式、面试官信息、需要提前准备的事项..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea>
+                </div>
+            </div>
+            <div class="border-t border-stone-100 pt-3 mt-4 flex justify-between items-center">
+                <button id="btn-delete-event" class="hidden px-4 py-2 text-rose-500 hover:text-rose-700 rounded-full text-xs font-bold transition cursor-pointer">🗑️ 删除此日程</button>
+                <div class="flex-1"></div>
+                <button id="btn-save-event" class="px-5 py-2 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition cursor-pointer shadow-sm">保存日程</button>
+            </div>
+        </div>
     </div>
 
     <!-- 弹窗设置：现代精致毛玻璃衬底 -->
@@ -391,6 +544,7 @@
                 const navs = [
                     {btn: 'nav-workspace', view: 'view-workspace'},
                     {btn: 'nav-tracker', view: 'view-tracker'},
+                    {btn: 'nav-calendar', view: 'view-calendar'},
                     {btn: 'nav-debrief', view: 'view-debrief'}
                 ];
                 setTimeout(() => {
@@ -409,7 +563,7 @@
             };
             
             // 劫持点击以实时重置柔和高亮状态
-            ['nav-workspace', 'nav-tracker', 'nav-debrief', 'btn-add-track'].forEach(id => {
+            ['nav-workspace', 'nav-tracker', 'nav-calendar', 'nav-debrief', 'btn-add-track'].forEach(id => {
                 document.getElementById(id)?.addEventListener('click', updateNavVisuals);
             });
             // 处理联动激活
