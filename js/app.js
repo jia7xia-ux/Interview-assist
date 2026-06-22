@@ -13,7 +13,8 @@ let state = {
     events: [], // 🌟 新增：秋招日程数组 { id, appId, title, date, startTime, endTime, type, notes }
     activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} },
     activeAppId: null, // 🌟 新增：标记当前工作台会话绑定的看板记录 id（null 表示自由模式，不挂载到任何投递记录）
-    calendarViewDate: new Date() // 🌟 新增：日历当前展示的月份（用于上下月切换）
+    calendarViewDate: new Date(), // 🌟 新增：日历当前展示的月份/周（用于翻页）
+    calendarViewMode: 'month' // 🌟 新增：'month' 或 'week'，控制日历主视图展示模式
 };
 
 function initApp() {
@@ -55,7 +56,7 @@ function initApp() {
     checkApiKeyStatus();
     restoreActiveSessionToUI(); // 🌟 新增：把恢复的工作台会话渲染回页面
     restoreDebriefSessionToUI(); // 🌟 新增：把恢复的录音复盘会话渲染回页面
-    renderCalendar(); // 🌟 新增：渲染日历月视图
+    renderCalendarView(); // 🌟 新增：渲染日历（月视图或周视图，取决于当前模式）
     renderUpcomingEvents(); // 🌟 新增：渲染近期日程列表
 }
 
@@ -325,7 +326,7 @@ window.deleteApp = (id) => {
     saveEvents();
 
     renderApplications();
-    renderCalendar();
+    renderCalendarView();
     renderUpcomingEvents();
 };
 
@@ -410,7 +411,7 @@ function switchView(viewName) {
     } else if (viewName === 'calendar') {
         calView.classList.remove('hidden');
         calNav.className = activeClass;
-        renderCalendar();
+        renderCalendarView();
         renderUpcomingEvents();
     } else if (viewName === 'debrief') {
         dbView.classList.remove('hidden');
@@ -456,6 +457,28 @@ function getConflictingEventIdsForDate(dateKey) {
         }
     }
     return conflictIds;
+}
+
+// 根据当前 calendarViewMode 渲染对应视图（月视图 / 周时间轴视图）
+function renderCalendarView() {
+    if (state.calendarViewMode === 'week') {
+        document.getElementById('cal-month-view').classList.add('hidden');
+        document.getElementById('cal-week-view').classList.remove('hidden');
+        renderWeekView();
+    } else {
+        document.getElementById('cal-week-view').classList.add('hidden');
+        document.getElementById('cal-month-view').classList.remove('hidden');
+        renderCalendar();
+    }
+    updateViewModeButtonStyles();
+}
+
+function updateViewModeButtonStyles() {
+    const monthBtn = document.getElementById('btn-view-mode-month');
+    const weekBtn = document.getElementById('btn-view-mode-week');
+    if (!monthBtn || !weekBtn) return;
+    monthBtn.classList.toggle('view-mode-active', state.calendarViewMode === 'month');
+    weekBtn.classList.toggle('view-mode-active', state.calendarViewMode === 'week');
 }
 
 function renderCalendar() {
@@ -523,6 +546,125 @@ function renderCalendar() {
     }).join('');
 }
 
+// 给一个 "HH:MM" 时间字符串加一小时，用于点击时间轴格子时给结束时间一个合理默认值
+function addOneHour(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const newH = (h + 1) % 24;
+    return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// 获取本周（周一为起点）的 7 个 Date 对象，基于 state.calendarViewDate
+function getWeekDates(refDate) {
+    const d = new Date(refDate);
+    const weekdayMon0 = (d.getDay() + 6) % 7; // 0=周一
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - weekdayMon0);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+        days.push(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
+    }
+    return days;
+}
+
+const WEEK_DOW_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+const WEEK_ROW_HEIGHT = 48; // 与 .week-hour-row / .week-hour-cell 的 CSS 高度保持一致
+
+function renderWeekView() {
+    const header = document.getElementById('cal-week-header');
+    const gridContainer = document.getElementById('cal-week-grid');
+    const label = document.getElementById('cal-month-label');
+    if (!header || !gridContainer || !label) return;
+
+    const weekDates = getWeekDates(state.calendarViewDate);
+    const todayKey = formatDateKey(new Date());
+    const firstDay = weekDates[0], lastDay = weekDates[6];
+
+    // 顶部标签：跨月显示 "6月22日 - 6月28日"，跨年显示年份避免歧义
+    const sameMonth = firstDay.getMonth() === lastDay.getMonth();
+    const rangeLabel = sameMonth
+        ? `${firstDay.getFullYear()}年 ${firstDay.getMonth() + 1}月${firstDay.getDate()}日 - ${lastDay.getDate()}日`
+        : `${firstDay.getMonth() + 1}月${firstDay.getDate()}日 - ${lastDay.getMonth() + 1}月${lastDay.getDate()}日`;
+    label.innerText = rangeLabel;
+
+    // 渲染顶部 7 天表头（第一列留空对齐时间刻度列）
+    header.innerHTML = `<div></div>` + weekDates.map(d => {
+        const dateKey = formatDateKey(d);
+        const isToday = dateKey === todayKey;
+        return `<div class="week-day-header-cell ${isToday ? 'is-today' : ''}">
+            <div class="week-day-header-dow">${WEEK_DOW_LABELS[(d.getDay() + 6) % 7]}</div>
+            <div class="week-day-header-num">${d.getDate()}</div>
+        </div>`;
+    }).join('');
+
+    // 渲染主体：左侧时间刻度列 + 7 个可点击的日列
+    let bodyHtml = '';
+
+    // 时间刻度列（24 小时）
+    bodyHtml += `<div>` + Array.from({ length: 24 }, (_, h) =>
+        `<div class="week-hour-row"><div class="week-time-label">${String(h).padStart(2, '0')}:00</div></div>`
+    ).join('') + `</div>`;
+
+    // 7 个日列
+    weekDates.forEach(d => {
+        const dateKey = formatDateKey(d);
+        const isToday = dateKey === todayKey;
+        const dayEvents = state.events.filter(e => e.date === dateKey);
+        const conflictIds = getConflictingEventIdsForDate(dateKey);
+
+        let colHtml = `<div class="week-day-col ${isToday ? 'week-day-col-today' : ''}" style="height:${24 * WEEK_ROW_HEIGHT}px;">`;
+
+        // 24 个可点击空白小时格
+        for (let h = 0; h < 24; h++) {
+            colHtml += `<div class="week-hour-cell" onclick="openEventModal(null, '${dateKey}', '${String(h).padStart(2, '0')}:00')"></div>`;
+        }
+
+        // 当前时间红线（仅今天显示）
+        if (isToday) {
+            const now = new Date();
+            const minutesFromMidnight = now.getHours() * 60 + now.getMinutes();
+            const topPx = (minutesFromMidnight / 60) * WEEK_ROW_HEIGHT;
+            colHtml += `<div class="week-current-time-line" style="top:${topPx}px;"></div>`;
+        }
+
+        // 事件方块（绝对定位叠加在空白格之上）
+        dayEvents.forEach(e => {
+            if (!e.startTime) return; // 没有具体时间的日程不在周时间轴上定位显示，只会出现在左侧近期列表
+            const [sh, sm] = e.startTime.split(':').map(Number);
+            const startMinutes = sh * 60 + sm;
+            let endMinutes = startMinutes + 60; // 默认 1 小时高度
+            if (e.endTime) {
+                const [eh, em] = e.endTime.split(':').map(Number);
+                const candidateEnd = eh * 60 + em;
+                if (candidateEnd > startMinutes) endMinutes = candidateEnd;
+            }
+            const topPx = (startMinutes / 60) * WEEK_ROW_HEIGHT;
+            const heightPx = Math.max(((endMinutes - startMinutes) / 60) * WEEK_ROW_HEIGHT, 22);
+            const typeClass = EVENT_TYPE_CLASS[e.type] || 'type-other';
+            const conflictClass = conflictIds.has(e.id) ? 'has-conflict' : '';
+
+            colHtml += `<div class="week-event-block ${typeClass} ${conflictClass}"
+                style="top:${topPx}px; height:${heightPx}px;"
+                onclick="event.stopPropagation(); openEventModal('${e.id}')"
+                title="${e.title}${conflictIds.has(e.id) ? ' ⚠️ 时间冲突' : ''}">
+                ${EVENT_TYPE_ICON[e.type] || ''} ${e.title}${e.endTime ? `<br>${e.startTime}-${e.endTime}` : `<br>${e.startTime}`}
+            </div>`;
+        });
+
+        colHtml += `</div>`;
+        bodyHtml += colHtml;
+    });
+
+    gridContainer.innerHTML = bodyHtml;
+
+    // 首次渲染时自动滚动到当前时间附近（提前 2 小时，避免红线贴在最顶部）
+    const scrollContainer = document.getElementById('cal-week-scroll-container');
+    if (scrollContainer && !scrollContainer.dataset.scrolledOnce) {
+        const now = new Date();
+        const scrollToPx = Math.max(((now.getHours() - 2) * WEEK_ROW_HEIGHT), 0);
+        scrollContainer.scrollTop = scrollToPx;
+        scrollContainer.dataset.scrolledOnce = 'true';
+    }
+}
+
 function renderUpcomingEvents() {
     const container = document.getElementById('upcoming-events-list');
     if (!container) return;
@@ -576,7 +718,7 @@ window.openEventModalForApp = (appId) => {
 };
 
 // 打开新增日程弹窗（不传 eventId）或编辑已有日程（传 eventId）
-window.openEventModal = (eventId) => {
+window.openEventModal = (eventId, prefillDate, prefillStartTime) => {
     const modal = document.getElementById('event-modal');
     const titleEl = document.getElementById('event-modal-title');
     const deleteBtn = document.getElementById('btn-delete-event');
@@ -598,10 +740,11 @@ window.openEventModal = (eventId) => {
         titleEl.innerText = '📅 新增面试/笔试日程';
         document.getElementById('event-edit-id').value = '';
         document.getElementById('event-title').value = '';
-        document.getElementById('event-date').value = formatDateKey(new Date());
+        document.getElementById('event-date').value = prefillDate || formatDateKey(new Date());
         document.getElementById('event-type').value = '面试';
-        document.getElementById('event-start-time').value = '';
-        document.getElementById('event-end-time').value = '';
+        document.getElementById('event-start-time').value = prefillStartTime || '';
+        // 默认给一个 1 小时的结束时间，方便直接保存（用户仍可自行修改）
+        document.getElementById('event-end-time').value = prefillStartTime ? addOneHour(prefillStartTime) : '';
         document.getElementById('event-notes').value = '';
         populateEventAppLinkOptions('');
         deleteBtn.classList.add('hidden');
@@ -635,7 +778,7 @@ window.saveEventFromModal = () => {
     }
     saveEvents();
     closeEventModal();
-    renderCalendar();
+    renderCalendarView();
     renderUpcomingEvents();
 };
 
@@ -646,14 +789,33 @@ window.deleteEventFromModal = () => {
     state.events = state.events.filter(e => e.id !== id);
     saveEvents();
     closeEventModal();
-    renderCalendar();
+    renderCalendarView();
     renderUpcomingEvents();
 };
 
 function changeCalendarMonth(offset) {
     const d = state.calendarViewDate;
-    state.calendarViewDate = new Date(d.getFullYear(), d.getMonth() + offset, 1);
-    renderCalendar();
+    if (state.calendarViewMode === 'week') {
+        state.calendarViewDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset * 7);
+    } else {
+        state.calendarViewDate = new Date(d.getFullYear(), d.getMonth() + offset, 1);
+    }
+    renderCalendarView();
+}
+
+// 🌟 新增：跳转到"今天"所在的月/周
+function goToToday() {
+    state.calendarViewDate = new Date();
+    renderCalendarView();
+}
+
+// 🌟 新增：切换日历主视图模式（月视图 / 周时间轴视图）
+function setCalendarViewMode(mode) {
+    state.calendarViewMode = mode;
+    // 切换到周视图时重置"已自动滚动"标记，确保每次进入周视图都自动定位到当前时间附近
+    const scrollContainer = document.getElementById('cal-week-scroll-container');
+    if (scrollContainer) delete scrollContainer.dataset.scrolledOnce;
+    renderCalendarView();
 }
 
 // ================= 秋招日程日历模块结束 =================
@@ -730,6 +892,9 @@ function setupEventListeners() {
     // 🌟 新增：日程日历相关事件绑定
     document.getElementById('btn-cal-prev').addEventListener('click', () => changeCalendarMonth(-1));
     document.getElementById('btn-cal-next').addEventListener('click', () => changeCalendarMonth(1));
+    document.getElementById('btn-cal-today').addEventListener('click', goToToday);
+    document.getElementById('btn-view-mode-month').addEventListener('click', () => setCalendarViewMode('month'));
+    document.getElementById('btn-view-mode-week').addEventListener('click', () => setCalendarViewMode('week'));
     document.getElementById('btn-add-event').addEventListener('click', () => openEventModal(null));
     document.getElementById('btn-close-event-modal').addEventListener('click', closeEventModal);
     document.getElementById('btn-save-event').addEventListener('click', saveEventFromModal);
