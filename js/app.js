@@ -10,7 +10,8 @@ let state = {
         { id: 'resume_c', name: '简历版本 C (例如：数据分析方向)', content: '' }
     ],
     applications: [], 
-    activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} }
+    activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} },
+    activeAppId: null // 🌟 新增：标记当前工作台会话绑定的看板记录 id（null 表示自由模式，不挂载到任何投递记录）
 };
 
 function initApp() {
@@ -31,6 +32,8 @@ function initApp() {
             console.warn('恢复上次会话失败:', e);
         }
     }
+    const savedActiveAppId = localStorage.getItem('interview_prep_active_app_id');
+    if (savedActiveAppId) state.activeAppId = JSON.parse(savedActiveAppId);
 
     const today = new Date().toISOString().split('T')[0];
     const dateInput = document.getElementById('track-date');
@@ -105,11 +108,20 @@ function restoreActiveSessionToUI() {
     if (firstTabBtn) firstTabBtn.click();
 }
 
-// 🌟 新增：清空当前工作台的生成结果（保留输入框内容，仅清空 AI 报告）
+// 🌟 新增：清空当前工作台的生成结果（保留输入框内容，仅清空 AI 报告，并解除与看板记录的绑定）
 window.clearActiveSessionResults = () => {
     if (!confirm('确定要清空当前工作台的全部生成结果吗？此操作不可恢复。')) return;
     state.activeSession.results = {};
     localStorage.removeItem('interview_prep_active_session');
+
+    // 如果当前会话绑定了某条看板记录，同步清空该记录的 prepResults
+    if (state.activeAppId) {
+        state.applications = state.applications.map(a => a.id === state.activeAppId ? { ...a, prepResults: {} } : a);
+        localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+        renderApplications();
+    }
+    state.activeAppId = null;
+    localStorage.removeItem('interview_prep_active_app_id');
 
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
@@ -244,6 +256,12 @@ function renderApplications() {
         const linkCell = app.link
             ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-500 hover:text-rose-700 transition" title="${app.link}">🔗</a>`
             : `<span class="text-stone-300">—</span>`;
+
+        const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
+        const prepBtn = hasPrep
+            ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 查看备战内容</button>`
+            : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-zinc-950 text-white rounded text-[11px] font-bold hover:bg-zinc-800 transition cursor-pointer">🚀 备战面试</button>`;
+
         return `
             <tr class="border-b border-zinc-100 hover:bg-zinc-50/50 transition">
                 <td class="p-3 font-mono text-[11px] text-zinc-400">${app.date}</td>
@@ -260,9 +278,7 @@ function renderApplications() {
                     </select>
                 </td>
                 <td class="p-3 text-center flex items-center justify-center gap-2">
-                    <button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-zinc-950 text-white rounded text-[11px] font-bold hover:bg-zinc-800 transition cursor-pointer">
-                        🚀 备战面试
-                    </button>
+                    ${prepBtn}
                     <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
                 </td>
             </tr>
@@ -302,16 +318,45 @@ window.activateAppForPrep = (id) => {
     const app = state.applications.find(a => a.id === id);
     if (!app) return;
 
+    // 🌟 把当前工作台会话绑定到这条投递记录上，后续生成结果会存进这条记录的 prepResults
+    state.activeAppId = id;
+    localStorage.setItem('interview_prep_active_app_id', JSON.stringify(id));
+
     switchView('workspace');
     document.getElementById('in-company').value = app.company;
     document.getElementById('in-role').value = app.role;
     document.getElementById('in-jd').value = app.jd || '';
 
-    document.getElementById('initial-state').classList.remove('hidden');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
     document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
 
-    alert(`🎯 已同步【${app.company}】数据，请在右侧选择好对应的匹配简历后点击启动！`);
+    const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
+
+    if (hasPrep) {
+        // 已经备战过：直接回填 5 个 tab，不需要重新调用 AI
+        state.activeSession = {
+            companyName: app.company,
+            region: app.region || 'Singapore',
+            roleTitle: app.role,
+            language: app.language || 'bilingual',
+            jd: app.jd || '',
+            results: app.prepResults
+        };
+        document.getElementById('initial-state').classList.add('hidden');
+
+        const tabKeyToPanel = {
+            match: 'tab-panel-match-raw', business: 'tab-panel-business-raw',
+            intro: 'tab-panel-intro-raw', star: 'tab-panel-star-raw', qa: 'tab-panel-qa-raw'
+        };
+        Object.entries(tabKeyToPanel).forEach(([key, panelId]) => {
+            if (app.prepResults[key]) renderMarkdown(panelId, app.prepResults[key]);
+        });
+        document.querySelector('.tab-btn[data-tab="match"]').click();
+    } else {
+        // 还没备战过：清空工作台输出区，等待用户点击生成
+        state.activeSession = { companyName: app.company, region: 'Singapore', roleTitle: app.role, language: 'bilingual', jd: app.jd || '', results: {} };
+        document.getElementById('initial-state').classList.remove('hidden');
+    }
 };
 
 // ================= 三视图核心切换开关 =================
@@ -491,6 +536,21 @@ window.copyTabContent = (panelId) => {
     navigator.clipboard.writeText(el.innerText).then(() => alert('内容已成功复制！'));
 };
 
+// 🌟 新增：保存某一步生成结果，同时写入 activeSession（全局临时态）和绑定的看板记录（持久态）
+function persistPipelineResult(key, value) {
+    state.activeSession.results[key] = value;
+    localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+
+    if (state.activeAppId) {
+        state.applications = state.applications.map(a => {
+            if (a.id !== state.activeAppId) return a;
+            const prepResults = { ...(a.prepResults || {}), [key]: value };
+            return { ...a, prepResults };
+        });
+        localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+    }
+}
+
 async function runFullPipeline() {
     if (!state.settings.apiKey) {
         alert('请先配置大模型 API 密钥！');
@@ -540,32 +600,27 @@ async function runFullPipeline() {
         addLog("▶ 正在启动 Step 1: 智能评测候选简历匹配度...");
         const res1 = await callLLM(window.PromptTemplates.resumeSelection(resumeTextForAI, jd, region, language));
         renderMarkdown('tab-panel-match-raw', res1);
-        state.activeSession.results.match = res1;
-        localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+        persistPipelineResult('match', res1);
 
         addLog("▶ 正在启动 Step 2: 拆解公司商业大盘、岗位坐标...");
         const res2 = await callLLM(window.PromptTemplates.businessContext(companyName, jd, region));
         renderMarkdown('tab-panel-business-raw', res2);
-        state.activeSession.results.business = res2;
-        localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+        persistPipelineResult('business', res2);
 
         addLog("▶ 正在启动 Step 3: 重构纯口语 30s/1min/2min 自述...");
         const res3 = await callLLM(window.PromptTemplates.selfIntroduction(resumeTextForAI, jd, language, region));
         renderMarkdown('tab-panel-intro-raw', res3);
-        state.activeSession.results.intro = res3;
-        localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+        persistPipelineResult('intro', res3);
 
         addLog("▶ 正在启动 Step 4: 锻造口语作答的 STAR 故事金句...");
         const res4 = await callLLM(window.PromptTemplates.starStories(resumeTextForAI, jd, language, region));
         renderMarkdown('tab-panel-star-raw', res4);
-        state.activeSession.results.star = res4;
-        localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+        persistPipelineResult('star', res4);
 
         addLog("▶ 正在启动 Step 5: 建模突发场景问答及神仙反问策略...");
         const res5 = await callLLM(window.PromptTemplates.businessPrepAndQuestions(companyName, jd, language));
         renderMarkdown('tab-panel-qa-raw', res5);
-        state.activeSession.results.qa = res5;
-        localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+        persistPipelineResult('qa', res5);
 
         addLog("✔ 管道流完整完整处理完成！");
         setTimeout(() => {
