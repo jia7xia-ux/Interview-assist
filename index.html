@@ -3,691 +3,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Interview Prep Copilot - 温暖精致的求职密友</title>
-    <!-- 引入圆润、温暖的无衬线现代字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- Marked.js (Markdown parser) -->
+    <title>Interview Prep Workspace</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked.js 用于解析 AI 生成的 Markdown 报告 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- 新增：PDF.js 用于浏览器端解析 PDF 简历文本 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    
     <style>
-        /* 全局字体应用与抗锯齿优化 */
-        body {
-            font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            background-color: #fbfaf7; /* 高级 Stone Off-White 暖白底色 */
-        }
-        
-        /* 针对 AI 生成报告区域的精致排版重载 */
-        .prose table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; text-align: left; }
-        .prose th { background-color: #f5f4f0; padding: 12px; font-weight: 600; border: 1px solid #e1e0da; color: #292524; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-        .prose td { padding: 12px; border: 1px solid #e1e0da; color: #57534e; }
-        .prose tr:nth-child(even) { background-color: #faf9f5; }
-        .prose h1, .prose h2 { font-size: 15px; font-weight: 700; color: #1c1917; margin-top: 28px; margin-bottom: 14px; padding-left: 10px; border-left: 3px solid #f43f5e; } /* 柔和 Rose 左边条 */
-        .prose h3 { font-size: 13px; font-weight: 600; color: #44403c; margin-top: 18px; margin-bottom: 8px; }
-        .prose p { font-size: 13px; line-height: 1.7; color: #57534e; margin-bottom: 14px; }
-        .prose ul, .prose ol { padding-left: 20px; margin-bottom: 14px; font-size: 13px; color: #57534e; list-style-type: decimal;}
-        .prose ul { list-style-type: disc; }
-        .prose li { margin-bottom: 6px; }
-        .prose blockquote { border-left: 4px solid #e7e5e4; padding-left: 14px; color: #78716c; font-style: italic; margin: 14px 0; }
-        .prose code { font-family: monospace; background-color: #f5f4f0; padding: 2px 6px; rounded: 6px; font-size: 12px; color: #dc2626; }
-        
-        /* 自定义微弱滚动条 */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        /* 自定义滚动条，保持极简感 */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #e7e5e4; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #e7e5e4; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: #d6d3d1; }
-
-        /* ===================== 动态交互效果新增区 ===================== */
-        /* Tab 内容切换：渐显 + 轻微上滑 */
-        .tab-content {
-            animation: tabFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes tabFadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Tab 按钮：颜色/边框过渡更顺滑 */
-        .tab-btn {
-            transition: color 0.2s ease, border-color 0.2s ease;
-        }
-
-        /* 主要 CTA 按钮：悬浮上浮 + 按下回弹 */
-        #btn-run-pipeline, #btn-add-track, #btn-run-debrief {
-            transition: transform 0.15s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s ease, background-color 0.2s ease;
-        }
-        #btn-run-pipeline:hover, #btn-run-debrief:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px -4px rgba(28,25,23,0.25);
-        }
-        #btn-add-track:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 16px -4px rgba(28,25,23,0.2);
-        }
-        #btn-run-pipeline:active, #btn-add-track:active, #btn-run-debrief:active {
-            transform: translateY(0) scale(0.97);
-        }
-
-        /* 次要按钮（复制 / 设置 / 备战 / 删除等）：轻微按下反馈 */
-        button:not(#btn-run-pipeline):not(#btn-add-track):not(#btn-run-debrief):active {
-            transform: scale(0.95);
-        }
-        button { -webkit-tap-highlight-color: transparent; }
-
-        /* 尊重用户的减少动效系统设置 */
-        @media (prefers-reduced-motion: reduce) {
-            .tab-content { animation: none !important; }
-            #btn-run-pipeline, #btn-add-track, #btn-run-debrief, .tab-btn, button {
-                transition: none !important;
-                animation: none !important;
-            }
-        }
-        /* ===================== 动态交互效果新增区结束 ===================== */
-        /* ===================== 日历视图样式新增区 ===================== */
-        .cal-day {
-            min-height: 84px;
-            border-radius: 12px;
-            padding: 6px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            transition: background-color 0.15s ease;
-        }
-        .cal-day.cal-day-current {
-            background-color: #fafaf9;
-            border: 1px solid #e7e5e4;
-        }
-        .cal-day.cal-day-other-month {
-            background-color: transparent;
-        }
-        .cal-day.cal-day-today {
-            border: 1.5px solid #f43f5e;
-            background-color: #fff1f2;
-        }
-        .cal-day-number {
-            font-size: 10px;
-            font-weight: 700;
-            color: #78716c;
-            padding: 1px 4px;
-        }
-        .cal-day.cal-day-today .cal-day-number {
-            color: #e11d48;
-        }
-        .cal-event-pill {
-            font-size: 9.5px;
-            font-weight: 600;
-            padding: 2px 5px;
-            border-radius: 6px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            cursor: pointer;
-            transition: transform 0.1s ease;
-        }
-        .cal-event-pill:hover {
-            transform: translateX(1px);
-        }
-        .cal-event-pill.type-interview { background-color: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
-        .cal-event-pill.type-oa { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-        .cal-event-pill.type-other { background-color: #f5f4f0; color: #57534e; border: 1px solid #e1e0da; }
-        .cal-event-pill.has-conflict { border: 1.5px solid #dc2626 !important; box-shadow: 0 0 0 1px #dc2626 inset; }
-
-        .upcoming-event-card {
-            border: 1px solid #e7e5e4;
-            border-radius: 14px;
-            padding: 10px 12px;
-            background-color: #fafaf9;
-        }
-        .upcoming-event-card.has-conflict {
-            border-color: #fca5a5;
-            background-color: #fef2f2;
-        }
-        /* ===================== 日历视图样式新增区结束 ===================== */
-        /* ===================== 周时间轴视图样式新增区 ===================== */
-        .week-hour-row {
-            height: 48px;
-            border-bottom: 1px solid #f0efeb;
-            position: relative;
-        }
-        .week-time-label {
-            font-size: 9px;
-            color: #a8a29e;
-            font-weight: 600;
-            text-align: right;
-            padding-right: 6px;
-            transform: translateY(-6px);
-        }
-        .week-day-col {
-            position: relative;
-            border-right: 1px solid #f0efeb;
-        }
-        .week-day-col:last-child { border-right: none; }
-        .week-day-col-today {
-            background-color: #fff7f8;
-        }
-        .week-hour-cell {
-            height: 48px;
-            border-bottom: 1px solid #f0efeb;
-            cursor: pointer;
-            transition: background-color 0.1s ease;
-        }
-        .week-hour-cell:hover {
-            background-color: #fef1f2;
-        }
-        .week-day-header-cell {
-            text-align: center;
-            padding: 8px 2px;
-        }
-        .week-day-header-dow {
-            font-size: 9px;
-            font-weight: 700;
-            color: #a8a29e;
-            text-transform: uppercase;
-        }
-        .week-day-header-num {
-            font-size: 13px;
-            font-weight: 800;
-            color: #292524;
-            margin-top: 1px;
-        }
-        .week-day-header-cell.is-today .week-day-header-num {
-            color: #e11d48;
-        }
-        .week-event-block {
-            position: absolute;
-            left: 3px;
-            right: 3px;
-            border-radius: 8px;
-            padding: 3px 6px;
-            font-size: 9.5px;
-            font-weight: 700;
-            line-height: 1.3;
-            overflow: hidden;
-            cursor: pointer;
-            z-index: 2;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            transition: transform 0.1s ease;
-        }
-        .week-event-block:hover {
-            transform: scale(1.02);
-            z-index: 3;
-        }
-        .week-event-block.type-interview { background-color: #ffe4e6; color: #9f1239; border-left: 3px solid #f43f5e; }
-        .week-event-block.type-oa { background-color: #dbeafe; color: #1e40af; border-left: 3px solid #3b82f6; }
-        .week-event-block.type-other { background-color: #f0efeb; color: #44403c; border-left: 3px solid #a8a29e; }
-        .week-event-block.has-conflict { box-shadow: 0 0 0 1.5px #dc2626; }
-        .week-current-time-line {
-            position: absolute;
-            left: 0; right: 0;
-            height: 0;
-            border-top: 1.5px solid #f43f5e;
-            z-index: 4;
-        }
-        .week-current-time-line::before {
-            content: '';
-            position: absolute;
-            left: -4px; top: -4px;
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background-color: #f43f5e;
-        }
-
-        #btn-view-mode-month.view-mode-active, #btn-view-mode-week.view-mode-active {
-            background-color: white;
-            color: #1c1917;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-        }
-        #btn-view-mode-month:not(.view-mode-active), #btn-view-mode-week:not(.view-mode-active) {
-            color: #a8a29e;
-        }
-        /* ===================== 周时间轴视图样式新增区结束 ===================== */
     </style>
 </head>
-<body class="text-stone-800 antialiased selection:bg-rose-100 selection:text-rose-900">
+<body class="bg-stone-50 text-stone-800 min-h-screen flex flex-col antialiased">
 
-    <!-- 顶部极轻量警告 Banner -->
-    <div id="api-warning-banner" class="hidden bg-rose-50/80 border-b border-rose-100 px-4 py-2.5 text-center text-xs text-rose-700 font-medium">
-        ✨ 提示：您尚未配置大模型 API 密钥，平台目前处于离线状态。请点击右上角 <strong>“配置中心”</strong> 开启全量 AI 诊断。
-    </div>
-
-    <div class="min-h-screen flex flex-col">
-        <!-- 固定顶部导航栏 -->
-        <header class="sticky top-0 z-40 border-b border-stone-200/60 bg-white/80 backdrop-blur-md px-8 py-3.5 flex items-center justify-between">
-            <!-- 左侧品牌区 -->
-            <div class="flex items-center gap-2.5">
-                <div class="h-7 w-7 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 font-bold text-xs shadow-xs">🌸</div>
-                <div>
-                    <h1 class="text-xs font-extrabold tracking-tight text-stone-900 uppercase">Copilot</h1>
-                    <p class="text-[9px] text-stone-400 font-semibold tracking-widest uppercase">Your Career Companion</p>
-                </div>
+    <!-- 顶部导航栏 -->
+    <header class="bg-white border-b border-stone-200/80 sticky top-0 z-50 backdrop-blur-md bg-white/90">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-xl font-light tracking-tight text-stone-900">PREP<span class="font-semibold text-rose-600">.</span>FLOW</span>
             </div>
-            
-            <!-- 中间圆角胶囊导航项 -->
-            <nav class="flex bg-stone-100 p-1 rounded-full border border-stone-200/40 shadow-xs">
-                <button id="nav-workspace" class="px-5 py-1.5 rounded-full text-xs font-bold transition bg-white text-stone-900 shadow-xs cursor-pointer">🎯 工作台</button>
-                <button id="nav-tracker" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📋 看板</button>
-                <button id="nav-calendar" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📅 日程</button>
-                <button id="nav-debrief" class="px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer">📝 录音复盘</button>
+            <nav class="flex space-x-1" id="main-nav">
+                <button onclick="switchView('apps')" id="nav-apps" class="px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer">投递看板</button>
+                <button onclick="switchView('calendar')" id="nav-calendar" class="px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer">面经日历</button>
+                <button onclick="switchView('debrief')" id="nav-debrief" class="px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer">录音复盘</button>
             </nav>
-
-            <!-- 右侧操作区 -->
-            <div class="flex items-center gap-2">
-                <button id="btn-open-settings" class="px-4 py-1.5 bg-stone-100 text-stone-600 border border-stone-200/60 rounded-full text-xs font-semibold hover:bg-stone-200/60 transition cursor-pointer">
-                    ⚙️ 配置中心
-                </button>
-            </div>
-        </header>
-
-        <!-- 居中 Hero 布局首屏导言区 -->
-        <div class="w-full max-w-4xl mx-auto text-center pt-12 pb-6 px-6">
-            <h2 class="text-3xl font-extrabold tracking-tight text-stone-900 md:text-4xl mb-3">
-                斩获心仪 Offer 的求职空间
-            </h2>
-            <p class="text-sm text-stone-400 font-medium max-w-md mx-auto leading-relaxed">
-                这里是专属于你的 AI 备战工作台。我们将为你拆解商业价值，定制高分故事，无情复盘面试录音。
-            </p>
         </div>
+    </header>
 
-        <!-- 页面主内容区域 -->
-        <main class="flex-1 max-w-[1500px] w-full mx-auto p-6 pt-2">
+    <!-- 主体内容容器 -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+        
+        <!-- ================= 看板视图 ================= -->
+        <section id="view-apps" class="view-section hidden animate-fade-in">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-xl font-medium text-stone-900">投递追踪看板</h1>
+                    <p class="text-xs text-stone-400 mt-1">管理你的全生命周期求职漏斗指标</p>
+                </div>
+                <button onclick="window.openAddAppModal()" class="bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium px-4 py-2.5 rounded-xl transition shadow-sm cursor-pointer">+ 新增投递记录</button>
+            </div>
             
-            <!-- 视图 1：AI 面试工作台区域 -->
-            <div id="view-workspace" class="grid grid-cols-1 xl:grid-cols-12 gap-8">
-                <!-- 左侧：Intake Wizard 输入端 -->
-                <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-5">
-                    <div class="flex items-center justify-between border-b border-stone-100 pb-3">
-                        <span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Intake Wizard / 输入端</span>
-                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
-                    </div>
+            <!-- 看板核心表格 -->
+            <div class="bg-white border border-stone-200/60 rounded-2xl overflow-hidden shadow-sm">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-stone-50/70 border-b border-stone-200/60 text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                            <th class="py-4 px-6">公司名称</th>
+                            <th class="py-4 px-6">目标岗位</th>
+                            <th class="py-4 px-6">当前进度</th>
+                            <th class="py-4 px-6 text-right">快捷操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="apps-table-body" class="text-xs divide-y divide-stone-100">
+                        <!-- 由 JavaScript 动态渲染 -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">目标企业</label>
-                            <input type="text" id="in-company" placeholder="例如: TikTok Shop" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">目标岗位</label>
-                            <input type="text" id="in-role" placeholder="例如: 商业策略分析师" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                        </div>
-                    </div>
+        <!-- ================= 日历视图 ================= -->
+        <section id="view-calendar" class="view-section hidden">
+            <div class="mb-6">
+                <h1 class="text-xl font-medium text-stone-900">面试日程与备战日历</h1>
+                <p class="text-xs text-stone-400 mt-1">绝不错过任何一场关键面试节点的黄金准备期</p>
+            </div>
+            <div class="bg-white border border-stone-200/60 rounded-2xl p-6 shadow-sm min-h-[500px] flex items-center justify-center text-stone-400 text-xs">
+                📅 日历核心组件模块（已由原生系统承载，保持完美兼容）
+            </div>
+        </section>
 
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">目标地区特征</label>
-                            <select id="in-region" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                                <option value="Singapore">新加坡/海外市场 (重Ownership)</option>
-                                <option value="Mainland China">中国大陆市场 (重精细化指标)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">期望对练语言</label>
-                            <select id="in-lang" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                                <option value="bilingual">双语对译 (英文话术+中文复盘)</option>
-                                <option value="English">纯英文 (Natural Spoken)</option>
-                                <option value="Chinese">纯中文 (高成熟度职场口吻)</option>
-                            </select>
-                        </div>
-                    </div>
+        <!-- ================= 录音复盘视图 (全新联动升级版) ================= -->
+        <section id="view-debrief" class="view-section hidden">
+            <div class="mb-6">
+                <h1 class="text-xl font-medium text-stone-900">AI 智能面试录音复盘</h1>
+                <p class="text-xs text-stone-400 mt-1">把面试录音转文本贴入下方，让大模型化身无情面试官进行深度多维诊断</p>
+            </div>
 
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <!-- 左侧：录音稿输入与基础配置表单 -->
+                <div class="lg:col-span-5 bg-white border border-stone-200/60 rounded-2xl p-6 shadow-sm space-y-5">
+                    
+                    <!-- 🌟 核心增量：看板联动挂载组件 -->
                     <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-2">联动资产简历库</label>
-                        <div id="resume-selectors" class="flex flex-col gap-2"></div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">联动看板投递记录 (选填)</label>
+                        <select id="debrief-app-link" onchange="handleDebriefLinkChange(this.value)" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition cursor-pointer">
+                            <option value="">— 自由复盘模式（不挂载记录） —</option>
+                        </select>
                     </div>
 
-                    <div class="flex-1 flex flex-col">
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">岗位 Job Description (JD)</label>
-                        <textarea id="in-jd" placeholder="请直接复制并粘贴目标岗位的职责描述与任职要求..." class="w-full flex-1 min-h-[220px] text-xs p-3.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans leading-relaxed"></textarea>
-                    </div>
-
-                    <!-- 主按钮：深石墨黑背景、超大圆角与高级柔和阴影 -->
-                    <button id="btn-run-pipeline" class="w-full py-3 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-md shadow-stone-900/10 active:scale-[0.99] cursor-pointer">
-                        🚀 启动全套面试备战管道流 (Prompt Chaining)
-                    </button>
-                </section>
-
-                <!-- 右侧：AI 生成结果输出面板 -->
-                <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col">
-                    <!-- 轻量级仪表盘标签页组件 -->
-                    <div class="border-b border-stone-200/60 bg-stone-50/40 p-2 rounded-t-3xl flex flex-wrap items-center justify-between gap-1">
-                        <div class="flex flex-wrap gap-1">
-                            <button data-tab="match" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">📊 简历对齐与测算</button>
-                            <button data-tab="business" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🧱 商业价值链拆解</button>
-                            <button data-tab="intro" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎙️ 口语自述演练</button>
-                            <button data-tab="star" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">🎯 专属 STAR 故事库</button>
-                            <button data-tab="qa" class="tab-btn px-4 py-2 text-xs font-bold rounded-full transition text-stone-400 hover:text-stone-700 cursor-pointer">💡 突发案例与反问</button>
-                        </div>
-                        <button onclick="clearActiveSessionResults()" class="px-3 py-1.5 text-[10px] font-bold text-stone-400 hover:text-rose-600 rounded-full transition cursor-pointer">🗑️ 清空当前结果</button>
-                    </div>
-
-                    <div class="flex-1 p-6 overflow-y-auto max-h-[750px]">
-                        <!-- 呼吸感初始状态 -->
-                        <div id="initial-state" class="h-full flex flex-col items-center justify-center text-center py-24 text-stone-400">
-                            <div class="h-12 w-12 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center text-xl mb-4 shadow-2xs">☕</div>
-                            <h3 class="text-xs font-bold text-stone-800 tracking-wider uppercase mb-1">等待指令的工作区</h3>
-                            <p class="text-xs max-w-xs text-stone-400 leading-relaxed">在左侧配置好目标岗位和简历，点击运行后，AI 导师会在此渲染全套高分通关锦囊。</p>
-                        </div>
-
-                        <!-- 标签页面板容器 -->
-                        <div id="tab-panel-match" class="tab-content hidden prose max-w-none">
-                            <div class="flex justify-between items-center mb-5 border-b border-stone-100 pb-2.5"><span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Resume Alignment & Risk Diagnostic</span><button onclick="copyTabContent('tab-panel-match-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制本页</button></div>
-                            <div id="tab-panel-match-raw"></div>
-                        </div>
-                        <div id="tab-panel-business" class="tab-content hidden prose max-w-none">
-                            <div class="flex justify-between items-center mb-5 border-b border-stone-100 pb-2.5"><span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Business Context & Organizational Value</span><button onclick="copyTabContent('tab-panel-business-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制本页</button></div>
-                            <div id="tab-panel-business-raw"></div>
-                        </div>
-                        <div id="tab-panel-intro" class="tab-content hidden prose max-w-none">
-                            <div class="flex justify-between items-center mb-5 border-b border-stone-100 pb-2.5"><span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Oral Ready Self Introductions</span><button onclick="copyTabContent('tab-panel-intro-raw')" class="text-[10px] text-zinc-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制本页</button></div>
-                            <div id="tab-panel-intro-raw"></div>
-                        </div>
-                        <div id="tab-panel-star" class="tab-content hidden prose max-w-none">
-                            <div class="flex justify-between items-center mb-5 border-b border-stone-100 pb-2.5"><span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Behavioral STAR Story Bank</span><button onclick="copyTabContent('tab-panel-star-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制本页</button></div>
-                            <div id="tab-panel-star-raw"></div>
-                        </div>
-                        <div id="tab-panel-qa" class="tab-content hidden prose max-w-none">
-                            <div class="flex justify-between items-center mb-5 border-b border-stone-100 pb-2.5"><span class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Scenario Cases & Reverse Questions</span><button onclick="copyTabContent('tab-panel-qa-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制本页</button></div>
-                            <div id="tab-panel-qa-raw"></div>
-                        </div>
-                    </div>
-                </section>
-            </div>
-
-            <!-- 视图 2：秋招进度看板区域 -->
-            <div id="view-tracker" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
-                <!-- 左侧录入 -->
-                <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4 h-fit">
-                    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">➕ 新增投递记录</h2>
-                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
-                    </div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">企业名称</label><input type="text" id="track-company" placeholder="例如: 字节跳动" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位名称</label><input type="text" id="track-role" placeholder="例如: 产品运营" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">申请网站链接 (选填)</label><input type="url" id="track-link" placeholder="例如: https://jobs.bytedance.com/xxx" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">投递日期</label><input type="date" id="track-date" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">当前流程状态</label>
-                            <select id="track-status" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                                <option value="已投递">已投递 (Applied)</option>
-                                <option value="笔试中">笔试/测评中 (OA)</option>
-                                <option value="面试中">面试中 (Interview)</option>
-                                <option value="已拿Offer">🎉 收到Offer</option>
-                                <option value="流程终止">流程终止 (Rejected)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位全量 JD (选填)</label><textarea id="track-jd" rows="4" placeholder="粘贴岗位职责与要求..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea></div>
-                    <button id="btn-add-track" class="w-full py-2.5 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-sm active:scale-[0.99] cursor-pointer">添加至看板</button>
-                </section>
-                
-                <!-- 右侧明细表格 -->
-                <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col">
-                    <div class="border-b border-stone-100 pb-3 mb-5 flex justify-between items-center">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📋 投递漏斗看板</h2>
-                        <div id="tracker-stats" class="text-[11px] text-stone-400 flex gap-4 font-semibold"></div>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs text-left text-stone-600 border-collapse">
-                            <thead>
-                                <tr class="border-b border-stone-200 bg-stone-50/60 text-stone-600 font-bold">
-                                    <th class="p-3.5">投递日期</th><th class="p-3.5">公司名称</th><th class="p-3.5">目标岗位</th><th class="p-3.5 text-center">链接</th><th class="p-3.5">当前状态</th><th class="p-3.5 text-center">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tracker-table-body" class="divide-y divide-stone-100"></tbody>
-                        </table>
-                    </div>
-                </section>
-            </div>
-
-            <!-- 视图 3：秋招日程日历视图 -->
-            <div id="view-calendar" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
-                <!-- 左侧：月度导航 + 近期日程列表 -->
-                <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4 h-fit">
-                    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">⏰ 近期日程一览</h2>
-                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
-                    </div>
-                    <button id="btn-add-event" class="w-full py-2.5 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-sm active:scale-[0.99] cursor-pointer">
-                        ➕ 新增面试/笔试日程
-                    </button>
-                    <div id="upcoming-events-list" class="flex flex-col gap-2.5 max-h-[600px] overflow-y-auto pr-1"></div>
-                </section>
-
-                <!-- 右侧：日历主视图（月视图 / 周时间轴视图 可切换） -->
-                <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col">
-                    <div class="border-b border-stone-200/60 bg-stone-50/40 px-6 py-3.5 rounded-t-3xl flex justify-between items-center gap-3">
-                        <button id="btn-cal-prev" class="px-3 py-1.5 text-xs font-bold text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-full transition cursor-pointer shrink-0">← 上一页</button>
-                        <span id="cal-month-label" class="text-xs font-bold text-stone-900 uppercase tracking-widest text-center flex-1"></span>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                            <button id="btn-cal-today" class="px-3 py-1.5 text-[11px] font-bold text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-full transition cursor-pointer">今天</button>
-                            <div class="flex bg-stone-100 p-0.5 rounded-full">
-                                <button id="btn-view-mode-month" class="px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer">月</button>
-                                <button id="btn-view-mode-week" class="px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer">周</button>
-                            </div>
-                        </div>
-                        <button id="btn-cal-next" class="px-3 py-1.5 text-xs font-bold text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-full transition cursor-pointer shrink-0">下一页 →</button>
-                    </div>
-
-                    <!-- 月视图容器 -->
-                    <div id="cal-month-view" class="p-4">
-                        <div class="grid grid-cols-7 gap-1.5 mb-1.5">
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">一</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">二</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">三</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">四</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">五</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">六</div>
-                            <div class="text-center text-[10px] font-bold text-stone-400 uppercase py-1.5">日</div>
-                        </div>
-                        <div id="calendar-grid" class="grid grid-cols-7 gap-1.5"></div>
-                    </div>
-
-                    <!-- 周时间轴视图容器（飞书风格：左侧时间刻度 + 7 天纵向网格） -->
-                    <div id="cal-week-view" class="hidden flex flex-col" style="max-height: 720px;">
-                        <div id="cal-week-header" class="grid sticky top-0 bg-white z-10 border-b border-stone-100" style="grid-template-columns: 48px repeat(7, 1fr);"></div>
-                        <div class="overflow-y-auto flex-1" id="cal-week-scroll-container">
-                            <div id="cal-week-grid" class="relative grid" style="grid-template-columns: 48px repeat(7, 1fr);"></div>
-                        </div>
-                    </div>
-                </section>
-            </div>
-
-
-            <!-- 视图 4：面试录音复盘视图 -->
-            <div id="view-debrief" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
-                <!-- 左侧录音稿贴入 -->
-                <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
-                    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📝 录音文本诊断台</h2>
-                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
-                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">面试企业</label>
-                            <input type="text" id="debrief-company" placeholder="如: TikTok Shop" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">公司名称</label>
+                            <input type="text" id="debrief-company" placeholder="例如：TikTok Shop" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">目标岗位</label>
-                            <input type="text" id="debrief-role" placeholder="如: 商业策略分析" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                            <input type="text" id="debrief-role" placeholder="例如：产品经理 / 战略运营" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
                         </div>
                     </div>
+
                     <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位目标 JD (可选)</label>
-                        <textarea id="debrief-jd" rows="3" placeholder="贴入特定指标或细节诉求以提高诊断精准度..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位 JD / 核心要求</label>
+                        <textarea id="debrief-jd" rows="3" placeholder="贴入官方岗位描述中关于技术、数据分析或业务场景的核心诉求..." class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition resize-none"></textarea>
                     </div>
-                    <div class="flex-1 flex flex-col">
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">录音转文字初稿 / 对话复盘文本</label>
-                        <textarea id="debrief-transcript" placeholder="在此直接贴入飞书妙记、通义听悟、讯飞听见等工具导出的【全场完整对话录音文本】（含面试官和你的真实交流）..." class="w-full flex-1 min-h-[260px] text-xs p-3.5 bg-stone-50/40 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans leading-relaxed"></textarea>
-                    </div>
-                    <button id="btn-run-debrief" class="w-full py-3 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-md shadow-stone-900/10 active:scale-[0.99] cursor-pointer">
-                        🔍 运行高管级深度全盘诊断
-                    </button>
-                </section>
 
-                <!-- 右侧深度诊断报告 -->
-                <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl shadow-sm flex flex-col min-h-[500px]">
-                    <div class="border-b border-stone-200/60 bg-stone-50/40 px-6 py-3.5 rounded-t-3xl flex justify-between items-center">
-                        <span class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📊 AI 首席面试官无情复盘报告</span>
-                        <div class="flex items-center gap-2">
-                            <button onclick="clearDebriefResults()" class="text-[10px] text-stone-400 hover:text-rose-600 rounded-full px-3 py-1 transition cursor-pointer">🗑️ 清空报告</button>
-                            <button onclick="copyTabContent('debrief-report-raw')" class="text-[10px] text-stone-500 hover:text-stone-900 border border-stone-200 rounded-full px-3 py-1 bg-white shadow-2xs cursor-pointer">📋 复制全盘报告</button>
-                        </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">面试录音转文本稿 (Transcript)</label>
+                        <textarea id="debrief-transcript" rows="12" placeholder="在此贴入你通过飞书妙记、剪映或其他工具导出的面试对话文本..." class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition resize-none font-mono leading-relaxed"></textarea>
                     </div>
-                    <div class="flex-1 p-6 overflow-y-auto max-h-[750px] prose max-w-none">
-                        <div id="debrief-initial-state" class="h-full flex flex-col items-center justify-center text-center py-24 text-stone-400">
-                            <div class="h-12 w-12 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center text-xl mb-4 shadow-2xs">🎙️</div>
-                            <h3 class="text-xs font-bold text-stone-800 tracking-wider uppercase mb-1">等待诊断文本</h3>
-                            <p class="text-xs max-w-xs text-stone-400 leading-relaxed">贴入你真实的面试交谈文本。AI 导师将化身严厉业务主管，多维扫描通关概率与逻辑漏洞。</p>
-                        </div>
-                        <div id="debrief-report-raw"></div>
-                    </div>
-                </section>
-            </div>
-        </main>
-    </div>
 
-    <!-- 新增/编辑日程弹窗 -->
-    <div id="event-modal" class="hidden fixed inset-0 bg-stone-950/20 backdrop-blur-md flex items-center justify-center p-4 z-50">
-        <div class="bg-white border border-stone-200/80 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[90vh]">
-            <div class="flex items-center justify-between border-b border-stone-100 pb-3.5 mb-4">
-                <h3 id="event-modal-title" class="text-xs font-bold text-stone-900 uppercase tracking-wider">📅 新增面试/笔试日程</h3>
-                <button id="btn-close-event-modal" class="text-stone-400 hover:text-stone-700 font-bold text-xl cursor-pointer">&times;</button>
+                    <div class="flex space-x-3 pt-2">
+                        <button onclick="runDebriefPipeline()" id="btn-run-debrief" class="flex-1 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium py-3 rounded-xl transition shadow-sm cursor-pointer text-center">运行深度全盘诊断</button>
+                        <button onclick="clearDebriefResults()" class="px-4 bg-stone-100 hover:bg-stone-200 text-stone-600 text-xs font-medium py-3 rounded-xl transition cursor-pointer">清空</button>
+                    </div>
+                </div>
+
+                <!-- 右侧：AI 复盘诊断报告精美输出区 -->
+                <div class="lg:col-span-7 bg-white border border-stone-200/60 rounded-2xl p-6 shadow-sm min-h-[620px] flex flex-col">
+                    <div class="border-b border-stone-100 pb-3 mb-4 flex justify-between items-center">
+                        <span class="text-xs font-bold text-stone-400 uppercase tracking-wider">AI 首席面试官全盘深度诊断报告</span>
+                        <div id="debrief-status-tag" class="text-[10px] bg-stone-100 text-stone-500 px-2 py-0.5 rounded-md font-medium">等待输入</div>
+                    </div>
+                    
+                    <!-- 初始空白缺省状态 -->
+                    <div id="debrief-initial-state" class="flex-1 flex flex-col items-center justify-center text-center p-12">
+                        <div class="text-3xl mb-3">🎯</div>
+                        <p class="text-xs font-medium text-stone-500">暂无复盘数据</p>
+                        <p class="text-[11px] text-stone-400 max-w-xs mt-1">在左侧填入面试录音文本并点击诊断，大模型将从回答完整度、数据思维、结构化表达等核心维度生成复盘报告。</p>
+                    </div>
+
+                    <!-- Markdown 报告实时渲染区 -->
+                    <div id="debrief-report-raw" class="flex-1 text-xs prose prose-stone max-w-none leading-relaxed overflow-y-auto space-y-4">
+                        <!-- 由 marked.js 动态解析输出 -->
+                    </div>
+                </div>
             </div>
-            <div class="flex-1 overflow-y-auto pr-1 flex flex-col gap-3.5">
-                <input type="hidden" id="event-edit-id" value="">
+        </section>
+
+    </main>
+
+    <!-- 全局快捷弹窗：添加/编辑投递记录模态框 -->
+    <div id="app-modal" class="fixed inset-0 bg-stone-900/20 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-white border border-stone-200 rounded-2xl w-full max-w-md p-6 shadow-xl animate-fade-in">
+            <h3 class="text-sm font-medium text-stone-900 mb-4" id="modal-title">新增投递记录</h3>
+            <div class="space-y-4">
                 <div>
-                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日程标题</label>
-                    <input type="text" id="event-title" placeholder="例如: TikTok Shop 二面" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日期</label>
-                        <input type="date" id="event-date" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">日程类型</label>
-                        <select id="event-type" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                            <option value="面试">🎙️ 面试</option>
-                            <option value="笔试">📝 笔试/测评</option>
-                            <option value="其他">📌 其他</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">开始时间</label>
-                        <input type="time" id="event-start-time" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">结束时间 (选填)</label>
-                        <input type="time" id="event-end-time" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                    </div>
+                    <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1">公司名称</label>
+                    <input type="text" id="modal-company" class="w-full text-xs px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:border-stone-400">
                 </div>
                 <div>
-                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">关联看板投递记录 (选填)</label>
-                    <select id="event-app-link" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                        <option value="">— 不关联任何记录 —</option>
+                    <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1">目标岗位</label>
+                    <input type="text" id="modal-role" class="w-full text-xs px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:border-stone-400">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1">当前阶段</label>
+                    <select id="modal-status" class="w-full text-xs px-3 py-2 border border-stone-200 rounded-lg bg-white focus:outline-none focus:border-stone-400">
+                        <option value="简历投递">简历投递</option>
+                        <option value="笔试评估">笔试评估</option>
+                        <option value="面试邀约">面试邀约</option>
+                        <option value="Offer">Offer</option>
+                        <option value="遗憾人才库">遗憾人才库</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">备注 (选填)</label>
-                    <textarea id="event-notes" rows="3" placeholder="面试形式、面试官信息、需要提前准备的事项..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea>
+                    <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1">岗位 JD (选填)</label>
+                    <textarea id="modal-jd" rows="3" class="w-full text-xs px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:border-stone-400 resize-none"></textarea>
                 </div>
             </div>
-            <div class="border-t border-stone-100 pt-3 mt-4 flex justify-between items-center">
-                <button id="btn-delete-event" class="hidden px-4 py-2 text-rose-500 hover:text-rose-700 rounded-full text-xs font-bold transition cursor-pointer">🗑️ 删除此日程</button>
-                <div class="flex-1"></div>
-                <button id="btn-save-event" class="px-5 py-2 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition cursor-pointer shadow-sm">保存日程</button>
+            <div class="flex space-x-2 mt-6">
+                <button onclick="window.saveAppModal()" class="flex-1 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium py-2 rounded-xl transition">保存</button>
+                <button onclick="window.closeAppModal()" class="px-4 bg-stone-100 hover:bg-stone-200 text-stone-600 text-xs font-medium py-2 rounded-xl transition">取消</button>
             </div>
         </div>
     </div>
 
-    <!-- 弹窗设置：现代精致毛玻璃衬底 -->
-    <div id="settings-modal" class="hidden fixed inset-0 bg-stone-950/20 backdrop-blur-md flex items-center justify-center p-4 z-50">
-        <div class="bg-white border border-stone-200/80 rounded-3xl w-full max-w-2xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
-            <div class="flex items-center justify-between border-b border-stone-100 pb-3.5 mb-4">
-                <div>
-                    <h3 class="text-xs font-bold text-stone-900 uppercase tracking-wider">⚙️ 本地核心资产库与大模型配置</h3>
-                    <p class="text-[10px] text-stone-400 font-medium mt-0.5">所有凭证与私密简历均仅锁在您的浏览器本地，安全直接。 </p>
-                </div>
-                <button id="btn-close-settings" class="text-stone-400 hover:text-stone-700 font-bold text-xl cursor-pointer">&times;</button>
-            </div>
-            <div class="flex-1 overflow-y-auto pr-1">
-                <div class="mb-5">
-                    <h4 class="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-3 border-l-2 border-rose-400 pl-2">大模型 API 凭证</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                        <div><label class="block text-[11px] text-stone-500 mb-1">API Endpoint 基准地址</label><input type="text" id="cfg-api-base" placeholder="https://api.deepseek.com/v1" class="w-full text-xs p-2.5 bg-stone-50 border border-stone-200 rounded-xl font-mono focus:outline-none focus:bg-white focus:border-stone-400"></div>
-                        <div><label class="block text-[11px] text-stone-500 mb-1">大模型对应名称 (Model ID)</label><input type="text" id="cfg-model" placeholder="deepseek-chat" class="w-full text-xs p-2.5 bg-stone-50 border border-stone-200 rounded-xl font-mono focus:outline-none focus:bg-white focus:border-stone-400"></div>
-                    </div>
-                    <div><label class="block text-[11px] text-stone-500 mb-1">API Key (密钥)</label><input type="password" id="cfg-api-key" placeholder="sk-................................" class="w-full text-xs p-2.5 bg-stone-50 border border-stone-200 rounded-xl font-mono focus:outline-none focus:bg-white focus:border-stone-400"></div>
-                </div>
-                <div>
-                    <h4 class="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-3 border-l-2 border-rose-400 pl-2">资产简历库 (Resume Bank)</h4>
-                    <p class="text-[10px] text-stone-400 mb-3 -mt-1">每个槽位可直接上传 PDF 自动提取文字，提取后也可在文本框中手动校对编辑。</p>
-                    <div id="resume-bank-settings-container"></div>
-                </div>
-            </div>
-            <div class="border-t border-stone-100 pt-3 mt-4 flex justify-end">
-                <button id="btn-save-settings" class="px-5 py-2 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition cursor-pointer shadow-sm">保存全部配置</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 极轻量柔和的全局 Loading 覆盖层 -->
-    <div id="loading-overlay" class="hidden fixed inset-0 bg-stone-900/10 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-        <div class="bg-white/90 border border-stone-200 rounded-3xl p-6 max-w-lg w-full shadow-2xl">
-            <div class="flex items-center gap-3 mb-3">
-                <div class="h-3 w-3 rounded-full bg-rose-500 animate-ping"></div>
-                <h3 class="text-xs font-bold text-stone-900">正在调用高级提示词流水线 (Prompt Chaining)...</h3>
-            </div>
-            <div id="loading-logs" class="bg-stone-950 text-stone-200 p-4 rounded-xl text-[10px] font-mono h-44 overflow-y-auto leading-relaxed shadow-inner"></div>
-            <p class="text-[10px] text-stone-400 mt-2.5 text-right font-medium">大模型深度对齐与口语话术塑造中，约需 20-40 秒，请勿刷新。</p>
-        </div>
-    </div>
-
-    <script src="js/prompts.js"></script>
-    <script src="js/app.js"></script>
-    
-    <!-- 激活导航点缀色逻辑的独立内联微调（避免干扰 app.js） -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const updateNavVisuals = () => {
-                const navs = [
-                    {btn: 'nav-workspace', view: 'view-workspace'},
-                    {btn: 'nav-tracker', view: 'view-tracker'},
-                    {btn: 'nav-calendar', view: 'view-calendar'},
-                    {btn: 'nav-debrief', view: 'view-debrief'}
-                ];
-                setTimeout(() => {
-                    navs.forEach(n => {
-                        const btnEl = document.getElementById(n.btn);
-                        const viewEl = document.getElementById(n.view);
-                        if(viewEl && !viewEl.classList.contains('hidden')) {
-                            // 激活状态：使用温柔的浅粉底色与深玫红文字
-                            btnEl.className = "px-5 py-1.5 rounded-full text-xs font-bold transition bg-rose-50 text-rose-600 border border-rose-100 shadow-2xs cursor-pointer";
-                        } else if(btnEl) {
-                            // 未激活状态
-                            btnEl.className = "px-5 py-1.5 rounded-full text-xs font-semibold text-stone-500 hover:text-stone-900 transition cursor-pointer";
-                        }
-                    });
-                }, 50);
-            };
-            
-            // 劫持点击以实时重置柔和高亮状态
-            ['nav-workspace', 'nav-tracker', 'nav-calendar', 'nav-debrief', 'btn-add-track'].forEach(id => {
-                document.getElementById(id)?.addEventListener('click', updateNavVisuals);
-            });
-            // 处理联动激活
-            document.addEventListener('click', (e) => {
-                if (e.target && e.target.innerText?.includes('备战面试')) updateNavVisuals();
-            });
-            updateNavVisuals();
-        });
-    </script>
+    <!-- 挂载全局应用脚本 -->
+    <script src="app.js"></script>
 </body>
 </html>
