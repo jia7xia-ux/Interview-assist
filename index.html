@@ -427,10 +427,24 @@
                 
                 <!-- 右侧明细表格 -->
                 <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col">
-                    <div class="border-b border-stone-100 pb-3 mb-5 flex justify-between items-center">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📋 投递漏斗看板</h2>
-                        <div id="tracker-stats" class="text-[11px] text-stone-400 flex gap-4 font-semibold"></div>
-                    </div>
+                    <div class="border-b border-stone-100 pb-4 mb-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">📋 投递漏斗看板</h2>
+        <div id="tracker-stats" class="text-[11px] text-stone-500"></div>
+    </div>
+    
+    <div class="flex items-center gap-2">
+        <input type="text" id="search-track-keyword" placeholder="搜索公司或岗位..." oninput="renderApplications()" class="text-xs px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition w-40 md:w-48">
+        <select id="filter-track-status" onchange="renderApplications()" class="text-xs px-2 py-1.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+            <option value="全部">全部状态</option>
+            <option value="已投递">已投递</option>
+            <option value="笔试中">笔试/测评</option>
+            <option value="面试中">面试中</option>
+            <option value="已拿Offer">收到Offer</option>
+            <option value="流程终止">流程终止</option>
+        </select>
+    </div>
+</div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-xs text-left text-stone-600 border-collapse">
                             <thead>
