@@ -1127,41 +1127,39 @@ function renderMarkdown(elementId, markdownText) {
  * @param {string} appId 投递记录ID
  */
 function startAudioReviewFromBoard(appId) {
-    // 1. 获取投递数据
+    // 1. 获取对应的投递记录数据
     const app = state.applications.find(a => a.id === appId);
     if (!app) {
         alert("未找到该岗位的相关信息");
         return;
     }
 
-    // 2. 切换到“面试录音复盘”视图
-    // 方案 A: 尝试调用你系统中已有的导航切换函数 (如果你有比如 switchView('view-debrief') 这样的函数，可以直接写在这里)
-    // 方案 B: 模拟点击左侧导航栏的复盘按钮 (通过寻找包含 view-debrief 关键字的 onclick 属性)
+    // 2. 切换到“面试录音复盘”视图 (view-debrief)
+    // 优先尝试寻找系统中包含 view-debrief 的导航按钮并点击它
     const debriefMenuBtn = document.querySelector('[onclick*="view-debrief"]') || document.querySelector('[onclick*="debrief"]');
     if (debriefMenuBtn) {
         debriefMenuBtn.click();
     } else {
-        // 方案 C: 保底强行切换（隐藏所有 view- 开头的 div，显示 view-debrief）
+        // 如果没有导航按钮，直接强行显示该视图，并隐藏其他视图
         document.querySelectorAll('div[id^="view-"]').forEach(view => view.classList.add('hidden'));
         document.getElementById('view-debrief').classList.remove('hidden');
     }
 
-    // 3. 给一点点延迟（100毫秒），确保视图切换完毕并且 DOM 已渲染可见，然后再填入数据
+    // 3. 延迟 100 毫秒等视图完全展示后，精准注入数据
     setTimeout(() => {
-        // 【关键】请确保你在 index.html 的 view-debrief 里面，输入框的 id 与这里对应！
-        // 比如：<input id="audio-company"> 和 <input id="audio-role">
-        const companyInput = document.getElementById('audio-company') || document.querySelector('#view-debrief input[placeholder*="公司"]');
-        const roleInput = document.getElementById('audio-role') || document.querySelector('#view-debrief input[placeholder*="岗位"]');
+        // 精准对应 HTML 里的 id="debrief-company" 和 id="debrief-role"
+        const companyInput = document.getElementById('debrief-company');
+        const roleInput = document.getElementById('debrief-role');
         
         if (companyInput && roleInput) {
-            // 自动填入看板中已有的岗位数据
+            // 自动填入看板中已有的数据
             companyInput.value = app.company || '';
             roleInput.value = app.role || '';
             
-            // 视角拉到输入框附近
+            // 页面平滑滚动，将诊断台对齐到屏幕中央
             companyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
             
-            // 视觉反馈：输入框亮起两秒，提示用户“已为你自动填好啦”
+            // 视觉反馈：让输入框闪烁高亮，提示用户已成功导入
             companyInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
             roleInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
             
@@ -1171,8 +1169,8 @@ function startAudioReviewFromBoard(appId) {
             }, 1500);
             
         } else {
-            console.warn("未在 view-debrief 中找到公司或岗位输入框。建议给它们加上 id='audio-company' 和 id='audio-role'");
-            alert(`已为您调出复盘页面！当前岗位是：${app.company} - ${app.role}。`);
+            // 保底提示
+            alert(`已为您调出复盘页面！当前选择：${app.company} - ${app.role}`);
         }
     }, 100);
 }
