@@ -315,6 +315,8 @@ function renderApplications() {
                     <td class="p-3 text-center flex items-center justify-center gap-2">
                         ${prepBtn}
                         <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="为这条记录添加日程">📅</button>
+                        <!-- 🎙️ 新增：一键直达录音复盘 -->
+                        <button onclick="startAudioReviewFromBoard('${app.id}')" class="text-stone-400 hover:text-amber-600 text-xs p-1 cursor-pointer" title="快速为此岗位创建录音复盘">🎙️</button>
                         <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
                     </td>
                 </tr>
@@ -1119,4 +1121,52 @@ async function callLLM(prompt) {
 function renderMarkdown(elementId, markdownText) {
     const target = document.getElementById(elementId);
     if (target && window.marked && window.marked.parse) target.innerHTML = window.marked.parse(markdownText);
+}
+/**
+ * 从看板一键联动到录音复盘模块
+ * @param {string} appId 投递记录ID
+ */
+function startAudioReviewFromBoard(appId) {
+    // 1. 查找对应的投递记录
+    const app = state.applications.find(a => a.id === appId);
+    if (!app) {
+        alert("未找到该投递岗位的相关信息");
+        return;
+    }
+
+    // 2. 这里的 ID 需要和你在 index.html 中录音复盘表单的 input id 保持一致
+    // 假设你的录音复盘模块中，“公司”和“岗位”的输入框 ID 分别是 'audio-company' 和 'audio-role'
+    // (如果你的 HTML 里是其他名字，请将下面这俩 DOM ID 改成你实际的名字)
+    const companyInput = document.getElementById('audio-company') || document.getElementById('voice-company') || document.getElementById('review-company');
+    const roleInput = document.getElementById('audio-role') || document.getElementById('voice-role') || document.getElementById('review-role');
+    
+    if (companyInput && roleInput) {
+        // 自动填入看板中已有的岗位数据
+        companyInput.value = app.company || '';
+        roleInput.value = app.role || '';
+        
+        // 可选：如果你的复盘模块还有“面试轮次”或“日期”输入框，也可以联动过去
+        const dateInput = document.getElementById('audio-date') || document.getElementById('voice-date') || document.getElementById('review-date');
+        if (dateInput) dateInput.value = app.date || '';
+
+        // 3. 视觉反馈：平滑滚动到录音复盘模块所在的区域
+        // 假设录音复盘的最外层容器 ID 是 'audio-review-section' 或 'voice-section'
+        const targetSection = document.getElementById('audio-review-section') || document.getElementById('voice-section') || companyInput.closest('section') || companyInput.closest('.bg-white');
+        
+        if (targetSection) {
+            targetSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // 让输入框高亮闪烁两下，提示用户“已自动填入”
+            companyInput.classList.add('ring-2', 'ring-amber-400');
+            roleInput.classList.add('ring-2', 'ring-amber-400');
+            setTimeout(() => {
+                companyInput.classList.remove('ring-2', 'ring-amber-400');
+                roleInput.classList.remove('ring-2', 'ring-amber-400');
+            }, 1500);
+        }
+    } else {
+        // 保底提示：防止 DOM 的 ID 没对上
+        console.warn("未找到录音复盘模块对应的输入框元素，请检查 HTML 中的 id 属性。");
+        alert(`已为您复制岗位信息：${app.company} - ${app.role}。请直接去录音模块粘贴。`);
+    }
 }
