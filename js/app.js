@@ -247,6 +247,7 @@ window.handleResumePdfUpload = async (resumeId, inputEl) => {
 };
 
 // 看板逻辑
+// 看板逻辑（已加入实时筛选与搜索功能）
 function renderApplications() {
     const tbody = document.getElementById('tracker-table-body');
     const statsContainer = document.getElementById('tracker-stats');
@@ -258,42 +259,70 @@ function renderApplications() {
         return;
     }
 
-    const sortedApps = [...state.applications].sort((a, b) => new Date(b.date) - new Date(a.date));
+    // 1. 获取当前用户输入的筛选和搜索关键词
+    const keywordInput = document.getElementById('search-track-keyword');
+    const statusSelect = document.getElementById('filter-track-status');
+    
+    const keyword = keywordInput ? keywordInput.value.trim().toLowerCase() : '';
+    const statusFilter = statusSelect ? statusSelect.value : '全部';
 
-    tbody.innerHTML = sortedApps.map(app => {
-        const linkCell = app.link
-            ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-500 hover:text-rose-700 transition" title="${app.link}">🔗</a>`
-            : `<span class="text-stone-300">—</span>`;
+    // 2. 执行双重条件过滤
+    const filteredApps = state.applications.filter(app => {
+        // 关键词过滤（同时匹配公司名称和岗位名称）
+        const matchesKeyword = !keyword || 
+            (app.company && app.company.toLowerCase().includes(keyword)) || 
+            (app.role && app.role.toLowerCase().includes(keyword));
+            
+        // 状态过滤
+        const matchesStatus = statusFilter === '全部' || app.status === statusFilter;
+        
+        return matchesKeyword && matchesStatus;
+    });
 
-        const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
-        const prepBtn = hasPrep
-            ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 查看备战内容</button>`
-            : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-zinc-950 text-white rounded text-[11px] font-bold hover:bg-zinc-800 transition cursor-pointer">🚀 备战面试</button>`;
+    // 根据日期从新到旧排序
+    const sortedApps = [...filteredApps].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        return `
-            <tr class="border-b border-zinc-100 hover:bg-zinc-50/50 transition">
-                <td class="p-3 font-mono text-[11px] text-zinc-400">${app.date}</td>
-                <td class="p-3 font-bold text-zinc-800">${app.company}</td>
-                <td class="p-3 text-zinc-600">${app.role}</td>
-                <td class="p-3 text-center">${linkCell}</td>
-                <td class="p-3">
-                    <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white font-medium ${getStatusColorClass(app.status)}">
-                        <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
-                        <option value="笔试中" ${app.status === '笔试中' ? 'selected' : ''}>笔试/测评</option>
-                        <option value="面试中" ${app.status === '面试中' ? 'selected' : ''}>面试中 ⚡</option>
-                        <option value="已拿Offer" ${app.status === '已拿Offer' ? 'selected' : ''}>🎉 收到Offer</option>
-                        <option value="流程终止" ${app.status === '流程终止' ? 'selected' : ''}>流程终止</option>
-                    </select>
-                </td>
-                <td class="p-3 text-center flex items-center justify-center gap-2">
-                    ${prepBtn}
-                    <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="为这条记录添加日程">📅</button>
-                    <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
-                </td>
-            </tr>
-        `;
-    }).join('');
+    // 3. 如果过滤后没有匹配结果
+    if (sortedApps.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-zinc-400 italic">没有找到符合筛选条件的投递记录 ☕</td></tr>`;
+    } else {
+        // 渲染过滤后的表格行
+        tbody.innerHTML = sortedApps.map(app => {
+            const linkCell = app.link
+                ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-500 hover:text-rose-700 transition" title="${app.link}">🔗</a>`
+                : `<span class="text-stone-300">—</span>`;
 
+            const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
+            const prepBtn = hasPrep
+                ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 查看备战内容</button>`
+                : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-zinc-950 text-white rounded text-[11px] font-bold hover:bg-zinc-800 transition cursor-pointer">🚀 备战面试</button>`;
+
+            return `
+                <tr class="border-b border-zinc-100 hover:bg-zinc-50/50 transition">
+                    <td class="p-3 font-mono text-[11px] text-zinc-400">${app.date}</td>
+                    <td class="p-3 font-bold text-zinc-800">${app.company}</td>
+                    <td class="p-3 text-zinc-600">${app.role}</td>
+                    <td class="p-3 text-center">${linkCell}</td>
+                    <td class="p-3">
+                        <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white font-medium ${getStatusColorClass(app.status)}">
+                            <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
+                            <option value="笔试中" ${app.status === '笔试中' ? 'selected' : ''}>笔试/测评</option>
+                            <option value="面试中" ${app.status === '面试中' ? 'selected' : ''}>面试中 ⚡</option>
+                            <option value="已拿Offer" ${app.status === '已拿Offer' ? 'selected' : ''}>🎉 收到Offer</option>
+                            <option value="流程终止" ${app.status === '流程终止' ? 'selected' : ''}>流程终止</option>
+                        </select>
+                    </td>
+                    <td class="p-3 text-center flex items-center justify-center gap-2">
+                        ${prepBtn}
+                        <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="为这条记录添加日程">📅</button>
+                        <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 4. 统计状态（仍基于全量数据统计，方便纵览全局漏斗情况）
     const total = state.applications.length;
     const interviewing = state.applications.filter(a => a.status === '面试中').length;
     const offers = state.applications.filter(a => a.status === '已拿Offer').length;
@@ -301,7 +330,6 @@ function renderApplications() {
         statsContainer.innerHTML = `<span>总投放: <strong class="text-zinc-800">${total}</strong></span> | <span class="text-amber-600 font-bold">面试中: ${interviewing}</span> | <span class="text-green-600 font-bold">Offers: ${offers}</span>`;
     }
 }
-
 function getStatusColorClass(status) {
     if (status === '面试中') return 'text-amber-700 bg-amber-50 border-amber-200 font-bold';
     if (status === '已拿Offer') return 'text-green-700 bg-green-50 border-green-200 font-bold';
