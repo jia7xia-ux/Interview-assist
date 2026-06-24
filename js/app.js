@@ -1127,46 +1127,52 @@ function renderMarkdown(elementId, markdownText) {
  * @param {string} appId 投递记录ID
  */
 function startAudioReviewFromBoard(appId) {
-    // 1. 查找对应的投递记录
+    // 1. 获取投递数据
     const app = state.applications.find(a => a.id === appId);
     if (!app) {
-        alert("未找到该投递岗位的相关信息");
+        alert("未找到该岗位的相关信息");
         return;
     }
 
-    // 2. 这里的 ID 需要和你在 index.html 中录音复盘表单的 input id 保持一致
-    // 假设你的录音复盘模块中，“公司”和“岗位”的输入框 ID 分别是 'audio-company' 和 'audio-role'
-    // (如果你的 HTML 里是其他名字，请将下面这俩 DOM ID 改成你实际的名字)
-    const companyInput = document.getElementById('audio-company') || document.getElementById('voice-company') || document.getElementById('review-company');
-    const roleInput = document.getElementById('audio-role') || document.getElementById('voice-role') || document.getElementById('review-role');
-    
-    if (companyInput && roleInput) {
-        // 自动填入看板中已有的岗位数据
-        companyInput.value = app.company || '';
-        roleInput.value = app.role || '';
-        
-        // 可选：如果你的复盘模块还有“面试轮次”或“日期”输入框，也可以联动过去
-        const dateInput = document.getElementById('audio-date') || document.getElementById('voice-date') || document.getElementById('review-date');
-        if (dateInput) dateInput.value = app.date || '';
-
-        // 3. 视觉反馈：平滑滚动到录音复盘模块所在的区域
-        // 假设录音复盘的最外层容器 ID 是 'audio-review-section' 或 'voice-section'
-        const targetSection = document.getElementById('audio-review-section') || document.getElementById('voice-section') || companyInput.closest('section') || companyInput.closest('.bg-white');
-        
-        if (targetSection) {
-            targetSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
-            // 让输入框高亮闪烁两下，提示用户“已自动填入”
-            companyInput.classList.add('ring-2', 'ring-amber-400');
-            roleInput.classList.add('ring-2', 'ring-amber-400');
-            setTimeout(() => {
-                companyInput.classList.remove('ring-2', 'ring-amber-400');
-                roleInput.classList.remove('ring-2', 'ring-amber-400');
-            }, 1500);
-        }
+    // 2. 切换到“面试录音复盘”视图
+    // 方案 A: 尝试调用你系统中已有的导航切换函数 (如果你有比如 switchView('view-debrief') 这样的函数，可以直接写在这里)
+    // 方案 B: 模拟点击左侧导航栏的复盘按钮 (通过寻找包含 view-debrief 关键字的 onclick 属性)
+    const debriefMenuBtn = document.querySelector('[onclick*="view-debrief"]') || document.querySelector('[onclick*="debrief"]');
+    if (debriefMenuBtn) {
+        debriefMenuBtn.click();
     } else {
-        // 保底提示：防止 DOM 的 ID 没对上
-        console.warn("未找到录音复盘模块对应的输入框元素，请检查 HTML 中的 id 属性。");
-        alert(`已为您复制岗位信息：${app.company} - ${app.role}。请直接去录音模块粘贴。`);
+        // 方案 C: 保底强行切换（隐藏所有 view- 开头的 div，显示 view-debrief）
+        document.querySelectorAll('div[id^="view-"]').forEach(view => view.classList.add('hidden'));
+        document.getElementById('view-debrief').classList.remove('hidden');
     }
+
+    // 3. 给一点点延迟（100毫秒），确保视图切换完毕并且 DOM 已渲染可见，然后再填入数据
+    setTimeout(() => {
+        // 【关键】请确保你在 index.html 的 view-debrief 里面，输入框的 id 与这里对应！
+        // 比如：<input id="audio-company"> 和 <input id="audio-role">
+        const companyInput = document.getElementById('audio-company') || document.querySelector('#view-debrief input[placeholder*="公司"]');
+        const roleInput = document.getElementById('audio-role') || document.querySelector('#view-debrief input[placeholder*="岗位"]');
+        
+        if (companyInput && roleInput) {
+            // 自动填入看板中已有的岗位数据
+            companyInput.value = app.company || '';
+            roleInput.value = app.role || '';
+            
+            // 视角拉到输入框附近
+            companyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // 视觉反馈：输入框亮起两秒，提示用户“已为你自动填好啦”
+            companyInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
+            roleInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
+            
+            setTimeout(() => {
+                companyInput.classList.remove('ring-2', 'ring-rose-400');
+                roleInput.classList.remove('ring-2', 'ring-rose-400');
+            }, 1500);
+            
+        } else {
+            console.warn("未在 view-debrief 中找到公司或岗位输入框。建议给它们加上 id='audio-company' 和 id='audio-role'");
+            alert(`已为您调出复盘页面！当前岗位是：${app.company} - ${app.role}。`);
+        }
+    }, 100);
 }
