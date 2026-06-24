@@ -850,7 +850,7 @@ function setCalendarViewMode(mode) {
 
 // ================= 秋招日程日历模块结束 =================
 
-// 🌟 新增：执行面试录音复盘大模型调用流程
+// 🌟 升级版：执行面试录音复盘大模型调用流程（已完美深度联动看板数据隔离）
 async function runDebriefPipeline() {
     if (!state.settings.apiKey) {
         alert('请先配置大模型 API 密钥！');
@@ -897,9 +897,33 @@ async function runDebriefPipeline() {
             reportRawNode.innerText = reportResult;
         }
 
-        // 🌟 新增：持久化保存本次复盘报告，防止刷新后丢失
+        // 🌟 1. 保留你原有的全局单次会话持久化（做兜底过渡）
         const debriefSession = { company, role, jd, transcript, report: reportResult };
         localStorage.setItem('interview_prep_debrief_session', JSON.stringify(debriefSession));
+
+        // 🌟 2. 深度绑定看板功能：如果当前是从看板的某个岗位点击麦克风进来的
+        if (state.activeAppId) {
+            // 在 state 全局状态中找到这个特定岗位
+            const currentApp = state.applications.find(a => a.id === state.activeAppId);
+            if (currentApp) {
+                // 将复盘输入的文本和 AI 报告挂载到这个岗位内部
+                currentApp.debriefJD = jd;
+                currentApp.debriefTranscript = transcript;
+                currentApp.debriefReport = reportResult; 
+            }
+            
+            // 独立在 localStorage 额外存一份以防万一
+            localStorage.setItem(`debrief_report_${state.activeAppId}`, reportResult);
+            localStorage.setItem(`debrief_transcript_${state.activeAppId}`, transcript);
+            localStorage.setItem(`debrief_jd_${state.activeAppId}`, jd);
+
+            // 调用你系统中原有的保存持久化函数（把整个 state.applications 数组存盘）
+            if (typeof saveApplications === 'function') {
+                saveApplications();
+            } else if (typeof saveToLocalStorage === 'function') {
+                saveToLocalStorage();
+            }
+        }
 
         addLog("✔ 复盘分析完成！已为您输出高管级全盘诊断报告。");
         setTimeout(() => overlay.classList.add('hidden'), 800);
@@ -1127,50 +1151,65 @@ function renderMarkdown(elementId, markdownText) {
  * @param {string} appId 投递记录ID
  */
 function startAudioReviewFromBoard(appId) {
-    // 1. 获取对应的投递记录数据
     const app = state.applications.find(a => a.id === appId);
     if (!app) {
         alert("未找到该岗位的相关信息");
         return;
     }
 
-    // 2. 切换到“面试录音复盘”视图 (view-debrief)
-    // 优先尝试寻找系统中包含 view-debrief 的导航按钮并点击它
+    // 🌟 锁定当前服务的看板岗位ID
+    state.activeAppId = appId; 
+
+    // 切换到“面试录音复盘”视图
     const debriefMenuBtn = document.querySelector('[onclick*="view-debrief"]') || document.querySelector('[onclick*="debrief"]');
     if (debriefMenuBtn) {
         debriefMenuBtn.click();
     } else {
-        // 如果没有导航按钮，直接强行显示该视图，并隐藏其他视图
         document.querySelectorAll('div[id^="view-"]').forEach(view => view.classList.add('hidden'));
         document.getElementById('view-debrief').classList.remove('hidden');
     }
 
-    // 3. 延迟 100 毫秒等视图完全展示后，精准注入数据
     setTimeout(() => {
-        // 精准对应 HTML 里的 id="debrief-company" 和 id="debrief-role"
         const companyInput = document.getElementById('debrief-company');
         const roleInput = document.getElementById('debrief-role');
+        const jdInput = document.getElementById('debrief-jd');
+        const transcriptInput = document.getElementById('debrief-transcript');
+        const reportRaw = document.getElementById('debrief-report-raw');
+        const initialState = document.getElementById('debrief-initial-state');
         
         if (companyInput && roleInput) {
-            // 自动填入看板中已有的数据
+            // 自动填充公司和岗位基本信息
             companyInput.value = app.company || '';
             roleInput.value = app.role || '';
             
-            // 页面平滑滚动，将诊断台对齐到屏幕中央
+            // 🌟 还原上一次你辛辛苦苦贴进去的录音初稿和 JD
+            if (jdInput) jdInput.value = app.debriefJD || localStorage.getItem(`debrief_jd_${appId}`) || '';
+            if (transcriptInput) transcriptInput.value = app.debriefTranscript || localStorage.getItem(`debrief_transcript_${appId}`) || '';
+            
+            // 🌟 还原上一次 AI 生成的高管级复盘报告
+            const savedReport = app.debriefReport || localStorage.getItem(`debrief_report_${appId}`);
+            
+            if (savedReport && reportRaw) {
+                if (initialState) initialState.classList.add('hidden');
+                if (window.marked && window.marked.parse) {
+                    reportRaw.innerHTML = window.marked.parse(savedReport);
+                } else {
+                    reportRaw.innerHTML = savedReport;
+                }
+            } else {
+                // 如果这个岗位从来没复盘过，展现默认的干净初始状态
+                if (initialState) initialState.classList.remove('hidden');
+                if (reportRaw) reportRaw.innerHTML = '';
+            }
+            
+            // 视觉动效与定位
             companyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
-            // 视觉反馈：让输入框闪烁高亮，提示用户已成功导入
-            companyInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
-            roleInput.classList.add('ring-2', 'ring-rose-400', 'transition-all', 'duration-300');
-            
+            companyInput.classList.add('ring-2', 'ring-rose-400');
+            roleInput.classList.add('ring-2', 'ring-rose-400');
             setTimeout(() => {
                 companyInput.classList.remove('ring-2', 'ring-rose-400');
                 roleInput.classList.remove('ring-2', 'ring-rose-400');
             }, 1500);
-            
-        } else {
-            // 保底提示
-            alert(`已为您调出复盘页面！当前选择：${app.company} - ${app.role}`);
         }
     }, 100);
 }
