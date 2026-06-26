@@ -401,29 +401,67 @@
             <div id="view-tracker" class="hidden grid grid-cols-1 xl:grid-cols-12 gap-8">
                 <!-- 左侧录入 -->
                 <section class="xl:col-span-4 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col gap-4 h-fit">
-                    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
-                        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">➕ 新增投递记录</h2>
-                        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
-                    </div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">企业名称</label><input type="text" id="track-company" placeholder="例如: 字节跳动" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位名称</label><input type="text" id="track-role" placeholder="例如: 产品运营" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">申请网站链接 (选填)</label><input type="url" id="track-link" placeholder="例如: https://jobs.bytedance.com/xxx" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">投递日期</label><input type="date" id="track-date" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition"></div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">当前流程状态</label>
-                            <select id="track-status" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                                <option value="已投递">已投递 (Applied)</option>
-                                <option value="笔试中">笔试/测评中 (OA)</option>
-                                <option value="面试中">面试中 (Interview)</option>
-                                <option value="已拿Offer">🎉 收到Offer</option>
-                                <option value="流程终止">流程终止 (Rejected)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div><label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位全量 JD (选填)</label><textarea id="track-jd" rows="4" placeholder="粘贴岗位职责与要求..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea></div>
-                    <button id="btn-add-track" class="w-full py-2.5 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-sm active:scale-[0.99] cursor-pointer">添加至看板</button>
-                </section>
+    <div class="border-b border-stone-100 pb-3 flex items-center justify-between">
+        <h2 class="text-[11px] font-bold text-stone-900 uppercase tracking-widest">➕ 新增投递记录</h2>
+        <span class="h-2 w-2 rounded-full bg-rose-300"></span>
+    </div>
+    <div>
+        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">企业名称</label>
+        <input type="text" id="track-company" placeholder="例如: 字节跳动" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+    </div>
+    <div>
+        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位名称</label>
+        <input type="text" id="track-role" placeholder="例如: 产品运营" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+    </div>
+    <div>
+        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">申请网站链接 (选填)</label>
+        <input type="url" id="track-link" placeholder="例如: https://jobs.bytedance.com/xxx" class="w-full text-xs px-3.5 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">投递日期</label>
+            <input type="date" id="track-date" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+        </div>
+        <div>
+            <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">当前流程状态</label>
+            <select id="track-status" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                <option value="已投递">已投递 (Applied)</option>
+                <option value="笔试中">笔试/测评中 (OA)</option>
+                <option value="面试中">面试中 (Interview)</option>
+                <option value="已拿Offer">🎉 收到Offer</option>
+                <option value="流程终止">流程终止 (Rejected)</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2.5 border-t border-stone-100 pt-3.5">
+        <div>
+            <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1.5 tracking-wide">Base城市</label>
+            <input type="text" id="track-base" placeholder="如: 新加坡" class="w-full text-[11px] px-2.5 py-2 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+        </div>
+        <div>
+            <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1.5 tracking-wide">优先级</label>
+            <select id="track-priority" class="w-full text-[11px] px-2 py-2 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                <option value="P0 (核心)">P0 (核心)</option>
+                <option value="P1 (重点)" selected>P1 (重点)</option>
+                <option value="P2 (日常)">P2 (日常)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[10px] font-bold text-stone-400 uppercase mb-1.5 tracking-wide">薪资范围</label>
+            <input type="text" id="track-salary" placeholder="如: 6-8k" class="w-full text-[11px] px-2.5 py-2 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+        </div>
+    </div>
+
+    <div>
+        <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">岗位全量 JD (选填)</label>
+        <textarea id="track-jd" rows="4" placeholder="粘贴岗位职责与要求..." class="w-full text-xs p-3 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition font-sans"></textarea>
+    </div>
+    
+    <button id="btn-add-track" class="w-full py-2.5 bg-stone-900 text-stone-50 rounded-full text-xs font-bold hover:bg-stone-800 transition shadow-sm active:scale-[0.99] cursor-pointer">
+        添加至看板
+    </button>
+</section>
                 
                 <!-- 右侧明细表格 -->
                 <section class="xl:col-span-8 bg-white border border-stone-200/50 rounded-3xl p-6 shadow-sm flex flex-col">
