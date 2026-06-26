@@ -317,9 +317,9 @@ function renderApplications() {
                     <!-- 5. 优先级 (全新升级：点击下拉框直接改，与状态一样方便) -->
                     <td class="p-3">
                         <select onchange="updateAppField('${app.id}', 'priority', this.value); renderApplications();" class="text-[10px] px-2 py-0.5 border rounded-full font-medium cursor-pointer outline-none ${prioritySelectColor}">
-                            <option value="P0 (核心)" ${app.priority === 'P0 (核心)' ? 'selected' : ''}>P0 (核心)</option>
-                            <option value="P1 (重点)" ${(app.priority === 'P1 (重点)' || !app.priority) ? 'selected' : ''}>P1 (重点)</option>
-                            <option value="P2 (日常)" ${app.priority === 'P2 (日常)' ? 'selected' : ''}>P2 (日常)</option>
+                            <option value="P0" ${app.priority === 'P0' ? 'selected' : ''}>P0</option>
+                            <option value="P1" ${(app.priority === 'P1' || !app.priority) ? 'selected' : ''}>P1</option>
+                            <option value="P2" ${app.priority === 'P2' ? 'selected' : ''}>P2</option>
                         </select>
                     </td>
                     
@@ -1025,7 +1025,7 @@ document.getElementById('btn-add-track').addEventListener('click', () => {
     // 🌟 新增：重置标签输入框的值
     document.getElementById('track-base').value = '';
     document.getElementById('track-salary').value = '';
-    document.getElementById('track-priority').value = 'P1 (重点)'; // 恢复默认值
+    document.getElementById('track-priority').value = 'P1'; // 恢复默认值
 
     renderApplications();
     alert('成功记入秋招漏斗看板！');
