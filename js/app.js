@@ -246,15 +246,14 @@ window.handleResumePdfUpload = async (resumeId, inputEl) => {
     }
 };
 
-// 看板逻辑
-// 看板逻辑（已加入实时筛选与搜索功能）
+// 核心看板渲染逻辑（全面升级：支持过滤 + 3大新标签 + 岗位文字超链接）
 function renderApplications() {
     const tbody = document.getElementById('tracker-table-body');
     const statsContainer = document.getElementById('tracker-stats');
     if (!tbody) return;
 
     if (state.applications.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-zinc-400 italic">暂无投递记录，快在左侧添加你的第一个秋招意向吧！</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-stone-400 italic">暂无投递记录，快在左侧添加你的第一个意向吧！</td></tr>`;
         if (statsContainer) statsContainer.innerHTML = "总计: 0";
         return;
     }
@@ -266,46 +265,52 @@ function renderApplications() {
     const keyword = keywordInput ? keywordInput.value.trim().toLowerCase() : '';
     const statusFilter = statusSelect ? statusSelect.value : '全部';
 
-    // 2. 执行双重条件过滤
+    // 2. 执行过滤
     const filteredApps = state.applications.filter(app => {
-        // 关键词过滤（同时匹配公司名称和岗位名称）
         const matchesKeyword = !keyword || 
             (app.company && app.company.toLowerCase().includes(keyword)) || 
             (app.role && app.role.toLowerCase().includes(keyword));
-            
-        // 状态过滤
         const matchesStatus = statusFilter === '全部' || app.status === statusFilter;
-        
         return matchesKeyword && matchesStatus;
     });
 
-    // 根据日期从新到旧排序
+    // 从新到旧排序
     const sortedApps = [...filteredApps].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // 3. 如果过滤后没有匹配结果
     if (sortedApps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-zinc-400 italic">没有找到符合筛选条件的投递记录 ☕</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-stone-400 italic">没有找到符合筛选条件的投递记录 ☕</td></tr>`;
     } else {
-        // 渲染过滤后的表格行
+        // 3. 渲染行
         tbody.innerHTML = sortedApps.map(app => {
-            const linkCell = app.link
-                ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-500 hover:text-rose-700 transition" title="${app.link}">🔗</a>`
-                : `<span class="text-stone-300">—</span>`;
+            // 🌟 需求 1：将超链接挂载到目标岗位上
+            const roleCellHtml = app.link
+                ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-600 hover:text-rose-800 font-medium underline decoration-wavy decoration-rose-200 hover:decoration-rose-500 transition-all" title="点击跳转职位链接">${app.role} 🔗</a>`
+                : `<span class="text-stone-700">${app.role}</span>`;
+
+            // 为优先级标签匹配好看的微色块样式
+            let priorityBadgeColor = 'bg-stone-50 text-stone-600 border-stone-200';
+            if (app.priority?.includes('P0')) priorityBadgeColor = 'bg-red-50 text-red-600 border-red-100 font-bold';
+            if (app.priority?.includes('P1')) priorityBadgeColor = 'bg-amber-50 text-amber-600 border-amber-100';
 
             const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
             const prepBtn = hasPrep
-                ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 查看备战内容</button>`
-                : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-1 bg-zinc-950 text-white rounded text-[11px] font-bold hover:bg-zinc-800 transition cursor-pointer">🚀 备战面试</button>`;
+                ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 备战</button>`
+                : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-0.5 bg-stone-900 text-white rounded text-[11px] font-bold hover:bg-stone-800 transition cursor-pointer">🚀 备战</button>`;
 
             return `
-                <tr class="border-b border-zinc-100 hover:bg-zinc-50/50 transition">
-                    <td class="p-3 font-mono text-[11px] text-zinc-400">${app.date}</td>
-                    <td class="p-3 font-bold text-zinc-800">${app.company}</td>
-                    <td class="p-3 text-zinc-600">${app.role}</td>
-                    <td class="p-3 text-center">${linkCell}</td>
+                <tr class="border-b border-stone-100 hover:bg-stone-50/40 transition">
+                    <td class="p-3 font-mono text-[11px] text-stone-400">${app.date}</td>
+                    <td class="p-3 font-bold text-stone-800">${app.company}</td>
+                    <td class="p-3">${roleCellHtml}</td>
+                    <td class="p-3 text-stone-500 font-medium">${app.base || '<span class="text-stone-300">—</span>'}</td>
                     <td class="p-3">
-                        <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white font-medium ${getStatusColorClass(app.status)}">
-                            <option value="未投递" ${app.status === '未投递' ? 'selected' : ''}>未投递</option>
+                        <span class="text-[10px] px-2 py-0.5 border rounded-full ${priorityBadgeColor}">
+                            ${app.priority || 'P1 (重点)'}
+                        </span>
+                    </td>
+                    <td class="p-3 font-mono text-stone-600 text-[11px]">${app.salary || '<span class="text-stone-300">—</span>'}</td>
+                    <td class="p-3">
+                        <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-stone-200 bg-white font-medium ${getStatusColorClass(app.status)}">
                             <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
                             <option value="笔试中" ${app.status === '笔试中' ? 'selected' : ''}>笔试/测评</option>
                             <option value="面试中" ${app.status === '面试中' ? 'selected' : ''}>面试中 ⚡</option>
@@ -313,26 +318,26 @@ function renderApplications() {
                             <option value="流程终止" ${app.status === '流程终止' ? 'selected' : ''}>流程终止</option>
                         </select>
                     </td>
-                    <td class="p-3 text-center flex items-center justify-center gap-2">
+                    <td class="p-3 text-center flex items-center justify-center gap-1.5">
                         ${prepBtn}
-                        <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="为这条记录添加日程">📅</button>
-                        <!-- 🎙️ 新增：一键直达录音复盘 -->
-                        <button onclick="startAudioReviewFromBoard('${app.id}')" class="text-stone-400 hover:text-amber-600 text-xs p-1 cursor-pointer" title="快速为此岗位创建录音复盘">🎙️</button>
-                        <button onclick="deleteApp('${app.id}')" class="text-zinc-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
+                        <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="添加日程">📅</button>
+                        <button onclick="startAudioReviewFromBoard('${app.id}')" class="text-stone-400 hover:text-amber-600 text-xs p-1 cursor-pointer" title="录音复盘">🎙️</button>
+                        <button onclick="deleteApp('${app.id}')" class="text-stone-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
                     </td>
                 </tr>
             `;
         }).join('');
     }
 
-    // 4. 统计状态（仍基于全量数据统计，方便纵览全局漏斗情况）
+    // 4. 更新统计
     const total = state.applications.length;
     const interviewing = state.applications.filter(a => a.status === '面试中').length;
     const offers = state.applications.filter(a => a.status === '已拿Offer').length;
     if (statsContainer) {
-        statsContainer.innerHTML = `<span>总投放: <strong class="text-zinc-800">${total}</strong></span> | <span class="text-amber-600 font-bold">面试中: ${interviewing}</span> | <span class="text-green-600 font-bold">Offers: ${offers}</span>`;
+        statsContainer.innerHTML = `<span>总投放: <strong class="text-stone-800">${total}</strong></span> | <span class="text-amber-600 font-bold">面试中: ${interviewing}</span> | <span class="text-green-600 font-bold">Offers: ${offers}</span>`;
     }
 }
+
 function getStatusColorClass(status) {
     if (status === '面试中') return 'text-amber-700 bg-amber-50 border-amber-200 font-bold';
     if (status === '已拿Offer') return 'text-green-700 bg-green-50 border-green-200 font-bold';
@@ -955,32 +960,56 @@ function setupEventListeners() {
     document.getElementById('btn-save-event').addEventListener('click', saveEventFromModal);
     document.getElementById('btn-delete-event').addEventListener('click', deleteEventFromModal);
 
-    // 看板录入
-    document.getElementById('btn-add-track').addEventListener('click', () => {
-        const company = document.getElementById('track-company').value.trim();
-        const role = document.getElementById('track-role').value.trim();
-        const link = document.getElementById('track-link').value.trim();
-        const date = document.getElementById('track-date').value;
-        const status = document.getElementById('track-status').value;
-        const jd = document.getElementById('track-jd').value.trim();
+    // 🌟 升级版：看板录入监听器（支持 Base城市、优先级、薪资范围持久化）
+document.getElementById('btn-add-track').addEventListener('click', () => {
+    const company = document.getElementById('track-company').value.trim();
+    const role = document.getElementById('track-role').value.trim();
+    const link = document.getElementById('track-link').value.trim();
+    const date = document.getElementById('track-date').value;
+    const status = document.getElementById('track-status').value;
+    const jd = document.getElementById('track-jd').value.trim();
+    
+    // 🌟 新增：提取 3 个新标签的数据
+    const base = document.getElementById('track-base').value.trim();
+    const priority = document.getElementById('track-priority').value;
+    const salary = document.getElementById('track-salary').value.trim();
 
-        if (!company || !role || !date) {
-            alert('请完整填写公司名称、岗位名称和投递日期！');
-            return;
-        }
+    if (!company || !role || !date) {
+        alert('请完整填写公司名称、岗位名称和投递日期！');
+        return;
+    }
 
-        const newApp = { id: 'app_' + Date.now(), company, role, link, date, status, jd };
-        state.applications.push(newApp);
-        localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+    // 🌟 将新属性安全挂载到 newApp 节点对象里
+    const newApp = { 
+        id: 'app_' + Date.now(), 
+        company, 
+        role, 
+        link, 
+        date, 
+        status, 
+        jd,
+        base,      // 城市标签
+        priority,  // 优先级标签
+        salary     // 薪资标签
+    };
+    
+    state.applications.push(newApp);
+    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
 
-        document.getElementById('track-company').value = '';
-        document.getElementById('track-role').value = '';
-        document.getElementById('track-link').value = '';
-        document.getElementById('track-jd').value = '';
-        
-        renderApplications();
-        alert('成功记入秋招漏斗看板！');
-    });
+    // 清空输入框内容（方便下一次录入）
+    document.getElementById('track-company').value = '';
+    document.getElementById('track-role').value = '';
+    document.getElementById('track-link').value = '';
+    document.getElementById('track-jd').value = '';
+    
+    // 🌟 新增：重置标签输入框的值
+    document.getElementById('track-base').value = '';
+    document.getElementById('track-salary').value = '';
+    document.getElementById('track-priority').value = 'P1 (重点)'; // 恢复默认值
+
+    renderApplications();
+    alert('成功记入秋招漏斗看板！');
+});
 
     document.getElementById('btn-open-settings').addEventListener('click', () => {
         document.getElementById('settings-modal').classList.remove('hidden');
