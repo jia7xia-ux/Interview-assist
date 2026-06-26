@@ -305,6 +305,7 @@ function renderApplications() {
                     <td class="p-3 text-center">${linkCell}</td>
                     <td class="p-3">
                         <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white font-medium ${getStatusColorClass(app.status)}">
+                            <option value="未投递" ${app.status === '未投递' ? 'selected' : ''}>未投递</option>
                             <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
                             <option value="笔试中" ${app.status === '笔试中' ? 'selected' : ''}>笔试/测评</option>
                             <option value="面试中" ${app.status === '面试中' ? 'selected' : ''}>面试中 ⚡</option>
