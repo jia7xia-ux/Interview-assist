@@ -280,12 +280,11 @@ function renderApplications() {
             // 🌟 针对公司、Base、薪资：提供行内直接点击修改的能力
             // 针对岗位名称：如果没有链接，可以编辑；如果有链接，通过小铅笔 ✏️ 单独修改
             const roleCellHtml = app.link
-                ? `<div class="flex items-center gap-1.5">
-                    <a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-600 hover:text-rose-800 font-medium underline decoration-wavy decoration-rose-200 hover:decoration-rose-500 transition-all">${app.role} 🔗</a>
-                    <span onclick="inlineEditPrompt('${app.id}', 'role', '${app.role}')" class="text-stone-300 hover:text-stone-600 cursor-pointer text-[10px]" title="修改岗位名称">✏️</span>
-                   </div>`
-                : `<div contenteditable="true" onblur="updateAppField('${app.id}', 'role', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-700">${app.role}</div>`;
-
+    ? `<div class="flex items-center gap-1.5">
+        <a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-stone-700 hover:text-stone-400 font-medium no-underline hover:underline hover:decoration-stone-300 transition-all">${app.role} 🔗</a>
+        <span onclick="inlineEditPrompt('${app.id}', 'role', '${app.role}')" class="text-stone-300 hover:text-stone-500 cursor-pointer text-[10px]" title="修改岗位名称">✏️</span>
+       </div>`
+    : `<div contenteditable="true" onblur="updateAppField('${app.id}', 'role', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-700">${app.role}</div>`;
             // 为当前行的优先级匹配背景色类
             let prioritySelectColor = 'text-stone-600 bg-stone-50 border-stone-200';
             if (app.priority?.includes('P0')) prioritySelectColor = 'text-red-600 bg-red-50 border-red-200 font-bold';
