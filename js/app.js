@@ -246,7 +246,7 @@ window.handleResumePdfUpload = async (resumeId, inputEl) => {
     }
 };
 
-// 核心看板渲染逻辑（全面升级：支持过滤 + 3大新标签 + 岗位文字超链接）
+// 核心看板渲染逻辑（终极版：支持行内直接修改 + 下拉框选择）
 function renderApplications() {
     const tbody = document.getElementById('tracker-table-body');
     const statsContainer = document.getElementById('tracker-stats');
@@ -258,14 +258,11 @@ function renderApplications() {
         return;
     }
 
-    // 1. 获取当前用户输入的筛选和搜索关键词
     const keywordInput = document.getElementById('search-track-keyword');
     const statusSelect = document.getElementById('filter-track-status');
-    
     const keyword = keywordInput ? keywordInput.value.trim().toLowerCase() : '';
     const statusFilter = statusSelect ? statusSelect.value : '全部';
 
-    // 2. 执行过滤
     const filteredApps = state.applications.filter(app => {
         const matchesKeyword = !keyword || 
             (app.company && app.company.toLowerCase().includes(keyword)) || 
@@ -274,32 +271,25 @@ function renderApplications() {
         return matchesKeyword && matchesStatus;
     });
 
-    // 从新到旧排序
     const sortedApps = [...filteredApps].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     if (sortedApps.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-stone-400 italic">没有找到符合筛选条件的投递记录 ☕</td></tr>`;
     } else {
-        // 3. 渲染行
         tbody.innerHTML = sortedApps.map(app => {
-            // 🌟 需求 1：将超链接挂载到目标岗位上
+            // 🌟 针对公司、Base、薪资：提供行内直接点击修改的能力
+            // 针对岗位名称：如果没有链接，可以编辑；如果有链接，通过小铅笔 ✏️ 单独修改
             const roleCellHtml = app.link
-                ? `<a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-600 hover:text-rose-800 font-medium underline decoration-wavy decoration-rose-200 hover:decoration-rose-500 transition-all" title="点击跳转职位链接">${app.role} 🔗</a>`
-                : `<span class="text-stone-700">${app.role}</span>`;
+                ? `<div class="flex items-center gap-1.5">
+                    <a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-rose-600 hover:text-rose-800 font-medium underline decoration-wavy decoration-rose-200 hover:decoration-rose-500 transition-all">${app.role} 🔗</a>
+                    <span onclick="inlineEditPrompt('${app.id}', 'role', '${app.role}')" class="text-stone-300 hover:text-stone-600 cursor-pointer text-[10px]" title="修改岗位名称">✏️</span>
+                   </div>`
+                : `<div contenteditable="true" onblur="updateAppField('${app.id}', 'role', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-700">${app.role}</div>`;
 
-            // 为优先级标签匹配好看的微色块样式
-            // 在 tbody.innerHTML = sortedApps.map(app => { ... }) 的循环内部：
-
-// 🌟 这里会根据你【自己选择】的优先级文本，动态改变色块的颜色
-let priorityBadgeColor = 'bg-stone-50 text-stone-600 border-stone-200'; // 默认日常色（灰色）
-
-if (app.priority && app.priority.includes('P0')) {
-    priorityBadgeColor = 'bg-red-50 text-red-600 border-red-100 font-bold'; // P0 核心变红
-} else if (app.priority && app.priority.includes('P1')) {
-    priorityBadgeColor = 'bg-amber-50 text-amber-600 border-amber-100'; // P1 重点变橙黄
-} else if (app.priority && app.priority.includes('P2')) {
-    priorityBadgeColor = 'bg-stone-50 text-stone-500 border-stone-200'; // P2 日常
-}
+            // 为当前行的优先级匹配背景色类
+            let prioritySelectColor = 'text-stone-600 bg-stone-50 border-stone-200';
+            if (app.priority?.includes('P0')) prioritySelectColor = 'text-red-600 bg-red-50 border-red-200 font-bold';
+            if (app.priority?.includes('P1')) prioritySelectColor = 'text-amber-600 bg-amber-50 border-amber-200';
 
             const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
             const prepBtn = hasPrep
@@ -308,16 +298,37 @@ if (app.priority && app.priority.includes('P0')) {
 
             return `
                 <tr class="border-b border-stone-100 hover:bg-stone-50/40 transition">
+                    <!-- 1. 时间 -->
                     <td class="p-3 font-mono text-[11px] text-stone-400">${app.date}</td>
-                    <td class="p-3 font-bold text-stone-800">${app.company}</td>
-                    <td class="p-3">${roleCellHtml}</td>
-                    <td class="p-3 text-stone-500 font-medium">${app.base || '<span class="text-stone-300">—</span>'}</td>
+                    
+                    <!-- 2. 公司 (可直接点击修改) -->
                     <td class="p-3">
-                        <span class="text-[10px] px-2 py-0.5 border rounded-full ${priorityBadgeColor}">
-                            ${app.priority || 'P1 (重点)'}
-                        </span>
+                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'company', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none font-bold text-stone-800">${app.company}</div>
                     </td>
-                    <td class="p-3 font-mono text-stone-600 text-[11px]">${app.salary || '<span class="text-stone-300">—</span>'}</td>
+                    
+                    <!-- 3. 目标岗位 (可直接点击修改/带链接带小铅笔) -->
+                    <td class="p-3">${roleCellHtml}</td>
+                    
+                    <!-- 4. Base地 (可直接点击修改) -->
+                    <td class="p-3">
+                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'base', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-500 font-medium">${app.base || '—'}</div>
+                    </td>
+                    
+                    <!-- 5. 优先级 (全新升级：点击下拉框直接改，与状态一样方便) -->
+                    <td class="p-3">
+                        <select onchange="updateAppField('${app.id}', 'priority', this.value); renderApplications();" class="text-[10px] px-2 py-0.5 border rounded-full font-medium cursor-pointer outline-none ${prioritySelectColor}">
+                            <option value="P0 (核心)" ${app.priority === 'P0 (核心)' ? 'selected' : ''}>P0 (核心)</option>
+                            <option value="P1 (重点)" ${(app.priority === 'P1 (重点)' || !app.priority) ? 'selected' : ''}>P1 (重点)</option>
+                            <option value="P2 (日常)" ${app.priority === 'P2 (日常)' ? 'selected' : ''}>P2 (日常)</option>
+                        </select>
+                    </td>
+                    
+                    <!-- 6. 薪资 (可直接点击修改) -->
+                    <td class="p-3">
+                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'salary', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none font-mono text-stone-600 text-[11px]">${app.salary || '—'}</div>
+                    </td>
+                    
+                    <!-- 7. 状态 (保留原有) -->
                     <td class="p-3">
                         <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-stone-200 bg-white font-medium ${getStatusColorClass(app.status)}">
                             <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
@@ -327,6 +338,8 @@ if (app.priority && app.priority.includes('P0')) {
                             <option value="流程终止" ${app.status === '流程终止' ? 'selected' : ''}>流程终止</option>
                         </select>
                     </td>
+                    
+                    <!-- 8. 操作 -->
                     <td class="p-3 text-center flex items-center justify-center gap-1.5">
                         ${prepBtn}
                         <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="添加日程">📅</button>
@@ -338,7 +351,6 @@ if (app.priority && app.priority.includes('P0')) {
         }).join('');
     }
 
-    // 4. 更新统计
     const total = state.applications.length;
     const interviewing = state.applications.filter(a => a.status === '面试中').length;
     const offers = state.applications.filter(a => a.status === '已拿Offer').length;
@@ -346,7 +358,6 @@ if (app.priority && app.priority.includes('P0')) {
         statsContainer.innerHTML = `<span>总投放: <strong class="text-stone-800">${total}</strong></span> | <span class="text-amber-600 font-bold">面试中: ${interviewing}</span> | <span class="text-green-600 font-bold">Offers: ${offers}</span>`;
     }
 }
-
 function getStatusColorClass(status) {
     if (status === '面试中') return 'text-amber-700 bg-amber-50 border-amber-200 font-bold';
     if (status === '已拿Offer') return 'text-green-700 bg-green-50 border-green-200 font-bold';
@@ -1251,4 +1262,36 @@ function startAudioReviewFromBoard(appId) {
             }, 1500);
         }
     }, 100);
+}
+/**
+ * 🌟 新增：行内即时同步修改数据
+ * @param {string} appId 岗位记录ID
+ * @param {string} field 修改的字段名名 (company, role, base, salary, priority)
+ * @param {string} value 修改后的新内容
+ */
+function updateAppField(appId, field, value) {
+    const app = state.applications.find(a => a.id === appId);
+    if (!app) return;
+
+    // 清洗一下用户直接回车或者不小心多打的空格
+    let cleanValue = value.replace(/[\r\n]/g, "").trim();
+    if (cleanValue === '—') cleanValue = ''; // 恢复占位符
+
+    // 赋值修改
+    app[field] = cleanValue;
+
+    // 持久化到浏览器缓存
+    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+    console.log(`[看板同步] 成功将岗位 ID ${appId} 的 ${field} 字段修改为: ${cleanValue}`);
+}
+
+/**
+ * 🌟 新增：针对有超链接的岗位名，点击小铅笔弹窗直接改名字
+ */
+function inlineEditPrompt(appId, field, currentValue) {
+    const newValue = prompt("请输入修改后的岗位名称：", currentValue);
+    if (newValue !== null && newValue.trim() !== "") {
+        updateAppField(appId, field, newValue);
+        renderApplications(); // 有链接的重新刷新渲染界面
+    }
 }
