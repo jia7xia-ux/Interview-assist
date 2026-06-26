@@ -288,9 +288,18 @@ function renderApplications() {
                 : `<span class="text-stone-700">${app.role}</span>`;
 
             // 为优先级标签匹配好看的微色块样式
-            let priorityBadgeColor = 'bg-stone-50 text-stone-600 border-stone-200';
-            if (app.priority?.includes('P0')) priorityBadgeColor = 'bg-red-50 text-red-600 border-red-100 font-bold';
-            if (app.priority?.includes('P1')) priorityBadgeColor = 'bg-amber-50 text-amber-600 border-amber-100';
+            // 在 tbody.innerHTML = sortedApps.map(app => { ... }) 的循环内部：
+
+// 🌟 这里会根据你【自己选择】的优先级文本，动态改变色块的颜色
+let priorityBadgeColor = 'bg-stone-50 text-stone-600 border-stone-200'; // 默认日常色（灰色）
+
+if (app.priority && app.priority.includes('P0')) {
+    priorityBadgeColor = 'bg-red-50 text-red-600 border-red-100 font-bold'; // P0 核心变红
+} else if (app.priority && app.priority.includes('P1')) {
+    priorityBadgeColor = 'bg-amber-50 text-amber-600 border-amber-100'; // P1 重点变橙黄
+} else if (app.priority && app.priority.includes('P2')) {
+    priorityBadgeColor = 'bg-stone-50 text-stone-500 border-stone-200'; // P2 日常
+}
 
             const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
             const prepBtn = hasPrep
