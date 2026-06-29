@@ -320,7 +320,7 @@
                         <div>
                             <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">目标地区特征</label>
                             <select id="in-region" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
-                                <option value="Singapore">新加坡/海外市场 (重Ownership)</option>
+                                <option value="Singapore">海外市场 (重Ownership)</option>
                                 <option value="Mainland China">中国大陆市场 (重精细化指标)</option>
                             </select>
                         </div>
@@ -328,8 +328,8 @@
                             <label class="block text-[11px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">期望对练语言</label>
                             <select id="in-lang" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
                                 <option value="bilingual">双语对译 (英文话术+中文复盘)</option>
-                                <option value="English">纯英文 (Natural Spoken)</option>
-                                <option value="Chinese">纯中文 (高成熟度职场口吻)</option>
+                                <option value="English">纯英文</option>
+                                <option value="Chinese">纯中文</option>
                             </select>
                         </div>
                     </div>
@@ -425,6 +425,7 @@
         <div>
             <label class="block text-[11px] font-bold text-stone-400 uppercase mb-1.5">当前流程状态</label>
             <select id="track-status" class="w-full text-xs px-3 py-2.5 bg-stone-50/60 border border-stone-200/60 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
+                <option value="未投递">待投递 (wishlist)</option>
                 <option value="已投递">已投递 (Applied)</option>
                 <option value="笔试中">笔试/测评中 (OA)</option>
                 <option value="面试中">面试中 (Interview)</option>
@@ -476,7 +477,7 @@
         <input type="text" id="search-track-keyword" placeholder="搜索公司或岗位..." oninput="renderApplications()" class="text-xs px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition w-40 md:w-48">
         <select id="filter-track-status" onchange="renderApplications()" class="text-xs px-2 py-1.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:bg-white focus:border-stone-400 transition">
             <option value="全部">全部状态</option>
-            <option value="未投递">已投递</option>
+            <option value="待投递">待投递</option>
             <option value="已投递">已投递</option>
             <option value="笔试中">笔试/测评</option>
             <option value="面试中">面试中</option>
