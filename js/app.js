@@ -939,15 +939,13 @@ async function runDebriefPipeline() {
             }
             
             // 独立在 localStorage 额外存一份以防万一
-            localStorage.setItem(`debrief_report_${state.activeAppId}`, reportResult);
-            localStorage.setItem(`debrief_transcript_${state.activeAppId}`, transcript);
-            localStorage.setItem(`debrief_jd_${state.activeAppId}`, jd);
+            safeSetItem(`debrief_report_${state.activeAppId}`, reportResult);
+            safeSetItem(`debrief_transcript_${state.activeAppId}`, transcript);
+            safeSetItem(`debrief_jd_${state.activeAppId}`, jd);
 
-            // 调用你系统中原有的保存持久化函数（把整个 state.applications 数组存盘）
-            if (typeof saveApplications === 'function') {
-                saveApplications();
-            } else if (typeof saveToLocalStorage === 'function') {
-                saveToLocalStorage();
+            // 把看板记录的复盘字段持久化（原代码调用了不存在的 saveApplications/saveToLocalStorage，导致刷新后丢失）
+            if (!safeSetItem('interview_prep_apps', JSON.stringify(state.applications))) {
+                addLog('⚠ 本地存储已满，复盘结果绑定看板记录未能持久化');
             }
         }
 
@@ -1081,15 +1079,108 @@ window.copyTabContent = (panelId) => {
 // 🌟 新增：保存某一步生成结果，同时写入 activeSession（全局临时态）和绑定的看板记录（持久态）
 function persistPipelineResult(key, value) {
     state.activeSession.results[key] = value;
-    localStorage.setItem('interview_prep_active_session', JSON.stringify(state.activeSession));
+    const ok1 = safeSetItem('interview_prep_active_session', JSON.stringify(state.activeSession));
 
+    let ok2 = true;
     if (state.activeAppId) {
         state.applications = state.applications.map(a => {
             if (a.id !== state.activeAppId) return a;
             const prepResults = { ...(a.prepResults || {}), [key]: value };
             return { ...a, prepResults };
         });
-        localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
+        ok2 = safeSetItem('interview_prep_apps', JSON.stringify(state.applications));
+    }
+    return ok1 && ok2;
+}
+
+// ===== 性能优化：两批并行流水线工具函数 =====
+
+// 读取当前勾选/可用的简历对象数组（无勾选时回退为全部有内容的简历）
+function getSelectedResumes() {
+    const checkedBoxes = document.querySelectorAll('input[name="selected_resumes"]:checked');
+    const selected = [];
+    checkedBoxes.forEach(cb => {
+        const res = state.resumes.find(r => r.id === cb.value);
+        if (res && res.content) selected.push(res);
+    });
+    if (selected.length === 0) return state.resumes.filter(r => r.content);
+    return selected;
+}
+
+// 把简历对象数组拼成传给大模型的文本块
+function buildResumeText(resumes) {
+    return resumes.map(res => `=== 简历版本: ${res.name} ===\n${res.content}\n\n`).join('');
+}
+
+// 安全写入 localStorage，捕获配额超限等异常，返回是否成功（非配额异常照常抛出）
+function safeSetItem(key, serialized) {
+    try {
+        localStorage.setItem(key, serialized);
+        return true;
+    } catch (e) {
+        if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
+            console.warn(`localStorage 写入失败（可能已满）：${key}`, e);
+            return false;
+        }
+        throw e;
+    }
+}
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// 清洗简历名：去行首 Markdown 记号、折叠连续空白
+function normalizeResumeName(s) {
+    return String(s).replace(/^[\s#*`>-]+/, '').replace(/[\s#*`]+$/, '').trim().replace(/\s+/g, ' ');
+}
+
+// 判断某份简历是否命中候选名（精确 → 归一 → 子串兜底）。子串只对足够长的候选启用，歧义由调用方的"唯一命中"判定兜底
+function nameMatches(resume, candidate) {
+    const full = resume.name.trim();
+    if (full === candidate) return true;
+    if (normalizeResumeName(resume.name) === candidate) return true;
+    if (candidate.length >= 4) {
+        return full.includes(candidate) || candidate.includes(full);
+    }
+    return false;
+}
+
+// 从简历匹配结果中解析"推荐的简历版本"，返回批2使用的简历数组；解析失败返回 null（由调用方降级为全部简历）
+function parseRecommendedResume(markdownText, resumes) {
+    const m = markdownText.match(/RECOMMENDED_RESUME:\s*([^\n]+)/i);
+    if (!m) return null;
+    const raw = normalizeResumeName(m[1]);
+    const candidates = [raw];
+    // 默认简历名形如「简历版本 A (例如：...)」，短名是天然第二候选
+    const short = normalizeResumeName(raw.split(/[（(]/)[0]);
+    if (short && short !== raw) candidates.push(short);
+    for (const cand of candidates) {
+        const hits = resumes.filter(r => r.content && nameMatches(r, cand));
+        if (hits.length === 1) return hits;
+    }
+    return null;
+}
+
+// 删除输出中的 RECOMMENDED_RESUME 标记行，避免渲染/存储时暴露内部标记
+function stripMarkerLine(md) {
+    return md.split('\n').filter(line => !/RECOMMENDED_RESUME/i.test(line)).join('\n').trim();
+}
+
+// 并行流水线单步包装：成功即渲染+持久化+日志；失败记入 ctx 不抛错，单步失败不拖垮整批
+async function runStep(key, panelId, label, buildPrompt, ctx) {
+    try {
+        const res = await callLLM(buildPrompt(), {
+            onRetry: (attempt, delaySec) => ctx.addLog(`⏳ ${label} 调用异常，${delaySec} 秒后进行第 ${attempt} 次重试...`)
+        });
+        const clean = stripMarkerLine(res);
+        renderMarkdown(panelId, clean);
+        const persistOk = persistPipelineResult(key, clean);
+        ctx.addLog(`✔ ${label} 完成`);
+        if (!persistOk) ctx.addLog('⚠ 本步结果仅保存在当前页面：浏览器本地存储已满，刷新后可能丢失。建议清理旧投递记录或导出备份。');
+        return { ok: true, result: res };
+    } catch (err) {
+        ctx.failedSteps.push(label);
+        ctx.addLog(`❌ ${label} 失败: ${err.message}`);
+        return { ok: false };
     }
 }
 
@@ -1111,18 +1202,8 @@ async function runFullPipeline() {
         return;
     }
 
-    const checkedBoxes = document.querySelectorAll('input[name="selected_resumes"]:checked');
-    let resumeTextForAI = "";
-    checkedBoxes.forEach(cb => {
-        const res = state.resumes.find(r => r.id === cb.value);
-        if (res && res.content) resumeTextForAI += `=== 简历版本: ${res.name} ===\n${res.content}\n\n`;
-    });
-
-    if (!resumeTextForAI) {
-        state.resumes.filter(r => r.content).forEach(res => {
-            resumeTextForAI += `=== 简历版本: ${res.name} ===\n${res.content}\n\n`;
-        });
-    }
+    const selectedResumes = getSelectedResumes();
+    const resumeTextAll = buildResumeText(selectedResumes);
 
     state.activeSession = { companyName, region, roleTitle, language, jd, results: {} };
     const overlay = document.getElementById('loading-overlay');
@@ -1138,37 +1219,53 @@ async function runFullPipeline() {
         logNode.scrollTop = logNode.scrollHeight;
     };
 
+    // 共享上下文：记录失败步骤 + 日志
+    const ctx = { failedSteps: [], addLog };
+
     try {
-        addLog("▶ 正在启动 Step 1: 智能评测候选简历匹配度...");
-        const res1 = await callLLM(window.PromptTemplates.resumeSelection(resumeTextForAI, jd, region, language));
-        renderMarkdown('tab-panel-match-raw', res1);
-        persistPipelineResult('match', res1);
+        addLog("▶ 第一批并行启动（3 路）：Step 1 简历匹配 / Step 2 商业背景 / Step 5 场景问答");
+        // 三路加 0-500ms 随机抖动错峰发出，降低触发 API 限流(429)的概率
+        const b1 = await Promise.allSettled([
+            sleep(Math.random() * 500).then(() => runStep('match', 'tab-panel-match-raw', 'Step 1 简历匹配', () => window.PromptTemplates.resumeSelection(resumeTextAll, jd, region, language), ctx)),
+            sleep(Math.random() * 500).then(() => runStep('business', 'tab-panel-business-raw', 'Step 2 商业背景', () => window.PromptTemplates.businessContext(companyName, jd, region), ctx)),
+            sleep(Math.random() * 500).then(() => runStep('qa', 'tab-panel-qa-raw', 'Step 5 场景问答', () => window.PromptTemplates.businessPrepAndQuestions(companyName, jd, language), ctx))
+        ]);
+        const b1OkCount = b1.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+        addLog(b1OkCount === 3 ? "✅ 第一批完成：3 路全部成功" : `⚠ 第一批完成：${b1OkCount} 路成功、${3 - b1OkCount} 路失败`);
 
-        addLog("▶ 正在启动 Step 2: 拆解公司商业大盘、岗位坐标...");
-        const res2 = await callLLM(window.PromptTemplates.businessContext(companyName, jd, region));
-        renderMarkdown('tab-panel-business-raw', res2);
-        persistPipelineResult('business', res2);
+        // 从 Step 1 结果解析推荐简历；解析失败（或 Step 1 本身失败）时降级为全部简历
+        let resumesForStep34 = selectedResumes;
+        const matchResult = (b1[0].status === 'fulfilled' && b1[0].value.ok) ? b1[0].value.result : null;
+        if (matchResult) {
+            const recommended = parseRecommendedResume(matchResult, selectedResumes);
+            if (recommended) {
+                resumesForStep34 = recommended;
+                addLog(`✔ 已识别推荐简历「${recommended.map(r => r.name).join('、')}」，Step 3/4 将只输入该版本（大幅降低输入 token）`);
+            } else {
+                addLog("⚠ 未能识别推荐简历，Step 3/4 回退使用全部简历");
+            }
+        } else {
+            addLog("⚠ Step 1 简历匹配失败，Step 3/4 回退使用全部简历");
+        }
 
-        addLog("▶ 正在启动 Step 3: 重构纯口语 30s/1min/2min 自述...");
-        const res3 = await callLLM(window.PromptTemplates.selfIntroduction(resumeTextForAI, jd, language, region));
-        renderMarkdown('tab-panel-intro-raw', res3);
-        persistPipelineResult('intro', res3);
+        addLog("▶ 第二批并行启动（2 路）：Step 3 自述 / Step 4 STAR 故事");
+        const resumeText34 = buildResumeText(resumesForStep34);
+        await Promise.allSettled([
+            runStep('intro', 'tab-panel-intro-raw', 'Step 3 自述', () => window.PromptTemplates.selfIntroduction(resumeText34, jd, language, region), ctx),
+            runStep('star', 'tab-panel-star-raw', 'Step 4 STAR 故事', () => window.PromptTemplates.starStories(resumeText34, jd, language, region), ctx)
+        ]);
 
-        addLog("▶ 正在启动 Step 4: 锻造口语作答的 STAR 故事金句...");
-        const res4 = await callLLM(window.PromptTemplates.starStories(resumeTextForAI, jd, language, region));
-        renderMarkdown('tab-panel-star-raw', res4);
-        persistPipelineResult('star', res4);
-
-        addLog("▶ 正在启动 Step 5: 建模突发场景问答及神仙反问策略...");
-        const res5 = await callLLM(window.PromptTemplates.businessPrepAndQuestions(companyName, jd, language));
-        renderMarkdown('tab-panel-qa-raw', res5);
-        persistPipelineResult('qa', res5);
-
-        addLog("✔ 管道流完整完整处理完成！");
-        setTimeout(() => {
-            overlay.classList.add('hidden');
-            document.querySelector('.tab-btn[data-tab="match"]').click();
-        }, 800);
+        if (ctx.failedSteps.length === 0) {
+            addLog("✔ 管道流完整处理完成（两批并行）");
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                document.querySelector('.tab-btn[data-tab="match"]').click();
+            }, 800);
+        } else {
+            addLog(`⚠ 部分步骤失败：${ctx.failedSteps.join('、')}，可点击"生成"重跑整个流水线`);
+            alert(`以下步骤失败：${ctx.failedSteps.join('、')}，可重新生成重试`);
+            setTimeout(() => overlay.classList.add('hidden'), 2000);
+        }
     } catch (error) {
         addLog(`❌ 出错了: ${error.message}`);
         alert(`流水线阻碍: ${error.message}`);
@@ -1176,7 +1273,8 @@ async function runFullPipeline() {
     }
 }
 
-async function callLLM(prompt) {
+// 调用大模型：支持超时（AbortController）+ 失败重试（指数退避 + 抖动）。可重试：超时/网络/429/5xx；不重试：4xx、JSON 解析异常、响应结构异常。
+async function callLLM(prompt, { timeoutMs = 300000, retries = 2, retryDelayMs = 1500, maxDelayMs = 6000, onRetry } = {}) {
     const url = `${state.settings.apiBase.replace(/\/$/, '')}/chat/completions`;
     const body = JSON.stringify({
         model: state.settings.model,
@@ -1186,10 +1284,49 @@ async function callLLM(prompt) {
         ],
         temperature: 0.3
     });
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.settings.apiKey}` }, body });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-    const data = await response.json();
-    return data.choices[0].message.content;
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.settings.apiKey}` };
+
+    let lastErr = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let shouldRetry = false;
+        try {
+            const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+            if (!response.ok) {
+                const detail = await response.text();
+                lastErr = new Error(`HTTP ${response.status}: ${detail}`);
+                // 429（限流）/ 5xx 可重试；其余 4xx 立即失败
+                shouldRetry = response.status === 429 || response.status >= 500;
+            } else {
+                const data = await response.json();
+                if (!data.choices || !data.choices[0] || !data.choices[0].message) throw new Error('响应结构异常：缺少 choices[0].message');
+                return data.choices[0].message.content;
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                lastErr = new Error(`请求超时（${Math.round(timeoutMs / 1000)}s）`);
+                shouldRetry = true;
+            } else if (err instanceof SyntaxError) {
+                throw err; // JSON 解析失败不重试
+            } else if (err instanceof TypeError) {
+                lastErr = err; // fetch 网络层失败，可重试
+                shouldRetry = true;
+            } else {
+                lastErr = err;
+                shouldRetry = false; // 响应结构异常等，不重试
+            }
+        } finally {
+            clearTimeout(timer);
+        }
+
+        if (!shouldRetry) throw lastErr;
+        if (attempt >= retries) break;
+        const delay = Math.min(retryDelayMs * Math.pow(2, attempt), maxDelayMs) + Math.random() * 400;
+        if (onRetry) onRetry(attempt + 1, Math.round(delay / 1000));
+        await sleep(delay);
+    }
+    throw lastErr || new Error('大模型调用失败');
 }
 
 function renderMarkdown(elementId, markdownText) {
