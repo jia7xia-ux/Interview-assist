@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 · Offer Copilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/theme.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .auth-wrap { position: relative; z-index: 1; min-height: 100vh; display: grid; grid-template-columns: 1.05fr 1fr; }
+        .showcase {
+            margin: 16px; border-radius: 36px; background: var(--grad); color: #fff; padding: 48px;
+            display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden;
+        }
+        .showcase::before, .showcase::after { content: ''; position: absolute; border-radius: 50%; background: rgba(255,255,255,.14); }
+        .showcase::before { width: 420px; height: 420px; right: -140px; top: -120px; }
+        .showcase::after { width: 260px; height: 260px; left: -80px; bottom: -90px; }
+        .sc-brand { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
+        .sc-logo { width: 44px; height: 44px; border-radius: 15px; background: #fff; color: var(--pink); font-weight: 900; font-size: 20px; display: flex; align-items: center; justify-content: center; transform: rotate(-6deg); }
+        .sc-title { font-size: 44px; font-weight: 800; letter-spacing: -.035em; line-height: 1.1; margin: 0 0 16px; position: relative; z-index: 1; }
+        .sc-desc { font-size: 16px; opacity: .9; line-height: 1.7; max-width: 440px; position: relative; z-index: 1; margin: 0; }
+        .sc-feats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; z-index: 1; }
+        .sc-feat { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.25); backdrop-filter: blur(8px); border-radius: 20px; padding: 16px; }
+        .sc-feat b { display: block; font-size: 14px; margin: 6px 0 2px; }
+        .sc-feat span { font-size: 12px; opacity: .85; }
+        .sc-float { position: absolute; right: 48px; top: 120px; z-index: 1; background: #fff; color: var(--ink); border-radius: 20px; padding: 14px 16px; box-shadow: 0 20px 40px -14px rgba(29,26,47,.4); transform: rotate(4deg); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 10px; animation: bob 4s ease-in-out infinite; }
+        @keyframes bob { 50% { transform: rotate(4deg) translateY(-8px); } }
+
+        .form-side { display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+        .form-box { width: 100%; max-width: 400px; }
+        .seg-auth { display: grid; grid-template-columns: 1fr 1fr; background: #F6F2FC; padding: 5px; border-radius: 16px; margin-bottom: 26px; }
+        .seg-auth button { font-family: inherit; border: none; background: transparent; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--muted); cursor: pointer; }
+        .seg-auth button.active { background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); }
+        .form-title { font-size: 28px; font-weight: 800; letter-spacing: -.03em; margin: 0 0 6px; }
+        .form-sub { font-size: 14px; color: var(--muted); margin: 0 0 26px; }
+        .stack { display: flex; flex-direction: column; gap: 16px; }
+        .pw-wrap { position: relative; }
+        .pw-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted); padding: 6px 8px; font-family: inherit; }
+        .msg { font-size: 13px; font-weight: 600; padding: 11px 14px; border-radius: 14px; line-height: 1.55; }
+        .msg.err { background: #FFF1F4; color: #BE123C; }
+        .msg.ok { background: #E7F8EE; color: #13843F; }
+        .msg.info { background: #FFF5DC; color: #8A5800; }
+        .divider { display: flex; align-items: center; gap: 12px; color: #B5B0C8; font-size: 12px; font-weight: 600; margin: 22px 0; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line-2); }
+        .link-btn { border: none; background: none; color: var(--violet); font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit; padding: 0; }
+        .link-btn:hover { text-decoration: underline; }
+        .row-between { display: flex; justify-content: space-between; align-items: center; }
+        .strength { display: flex; gap: 4px; margin-top: 8px; }
+        .strength i { flex: 1; height: 4px; border-radius: 4px; background: #F1EBFA; }
+        .strength.s1 i:nth-child(-n+1) { background: #FB7185; }
+        .strength.s2 i:nth-child(-n+2) { background: var(--sun); }
+        .strength.s3 i:nth-child(-n+3) { background: var(--mint); }
+
+        @media (max-width: 900px) {
+            .auth-wrap { grid-template-columns: 1fr; }
+            .showcase { padding: 28px; border-radius: 28px; min-height: auto; gap: 24px; }
+            .sc-title { font-size: 30px; }
+            .sc-feats, .sc-float { display: none; }
+            .form-side { padding: 12px 20px 40px; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="blobs"><span></span><span></span><span></span></div>
+
+    <div class="auth-wrap">
+        <aside class="showcase">
+            <div class="sc-brand">
+                <div class="sc-logo">O</div>
+                <div>
+                    <div style="font-weight:800;font-size:17px;">Offer Copilot</div>
+                    <div style="font-size:12px;opacity:.85;font-weight:600;">你的 AI 求职搭子</div>
+                </div>
+            </div>
+
+            <div class="sc-float"><span style="font-size:22px;">🎉</span> 恭喜！TikTok Shop 进入终面</div>
+
+            <div>
+                <h1 class="sc-title">把每一场面试<br>都准备到位</h1>
+                <p class="sc-desc">上传简历，贴入 JD，一键生成匹配诊断、商业拆解、自我介绍、STAR 故事和反问清单。看板、日程、复盘都在一个地方。</p>
+            </div>
+
+            <div class="sc-feats">
+                <div class="sc-feat">📄<b>PDF 简历智能解析</b><span>自动识别教育、经历与技能</span></div>
+                <div class="sc-feat">🚀<b>五合一备战报告</b><span>两批并行，约 1 分钟出结果</span></div>
+                <div class="sc-feat">📋<b>投递漏斗看板</b><span>状态、优先级、薪资一目了然</span></div>
+                <div class="sc-feat">☁️<b>云端同步</b><span>换电脑、换手机数据都在</span></div>
+            </div>
+        </aside>
+
+        <main class="form-side">
+            <div class="form-box">
+
+                <!-- 登录 / 注册 -->
+                <section id="pane-auth">
+                    <div class="seg-auth">
+                        <button id="tab-login" class="active">登录</button>
+                        <button id="tab-signup">注册</button>
+                    </div>
+                    <h2 class="form-title" id="auth-title">欢迎回来 👋</h2>
+                    <p class="form-sub" id="auth-sub">登录后继续你的秋招备战</p>
+
+                    <div id="config-warning" class="msg info hidden" style="margin-bottom:16px;">
+                        站点尚未配置账号服务（Supabase），目前只能使用游客模式，数据仅保存在本浏览器。
+                    </div>
+
+                    <form id="auth-form" class="stack" novalidate>
+                        <div class="field hidden" id="field-nickname">
+                            <label class="label" for="in-nickname">昵称 <span class="opt">(选填)</span></label>
+                            <input class="input" id="in-nickname" type="text" placeholder="怎么称呼你" autocomplete="nickname">
+                        </div>
+                        <div class="field">
+                            <label class="label" for="in-email">邮箱</label>
+                            <input class="input" id="in-email" type="email" placeholder="you@example.com" autocomplete="email" required>
+                        </div>
+                        <div class="field">
+                            <div class="row-between">
+                                <label class="label" for="in-password">密码</label>
+                                <button type="button" class="link-btn" id="btn-forgot" style="margin-bottom:7px;">忘记密码？</button>
+                            </div>
+                            <div class="pw-wrap">
+                                <input class="input" id="in-password" type="password" placeholder="至少 6 位" autocomplete="current-password" required style="padding-right:56px;">
+                                <button type="button" class="pw-toggle" data-target="in-password">显示</button>
+                            </div>
+                            <div class="strength hidden" id="pw-strength"><i></i><i></i><i></i></div>
+                        </div>
+                        <div id="auth-msg" class="msg hidden"></div>
+                        <button type="submit" class="btn btn-primary btn-lg btn-block" id="btn-submit">登录</button>
+                    </form>
+
+                    <div id="guest-block">
+                        <div class="divider">或者</div>
+                        <button class="btn btn-ghost btn-lg btn-block" id="btn-guest">👀 先以游客身份体验</button>
+                        <p style="font-size:12px;color:var(--muted);text-align:center;margin:10px 0 0;">游客数据只保存在当前浏览器，登录后会自动迁移到你的账号。</p>
+                    </div>
+                </section>
+
+                <!-- 找回密码 -->
+                <section id="pane-forgot" class="hidden">
+                    <button class="link-btn" id="btn-back-1" style="margin-bottom:18px;">← 返回登录</button>
+                    <h2 class="form-title">找回密码 🔑</h2>
+                    <p class="form-sub">输入注册邮箱，我们会发送一封重置密码的邮件。</p>
+                    <form id="forgot-form" class="stack" novalidate>
+                        <div class="field">
+                            <label class="label" for="in-forgot-email">邮箱</label>
+                            <input class="input" id="in-forgot-email" type="email" placeholder="you@example.com" required>
+                        </div>
+                        <div id="forgot-msg" class="msg hidden"></div>
+                        <button type="submit" class="btn btn-primary btn-lg btn-block">发送重置邮件</button>
+                    </form>
+                </section>
+
+                <!-- 设置新密码（从邮件链接进入） -->
+                <section id="pane-reset" class="hidden">
+                    <h2 class="form-title">设置新密码 ✨</h2>
+                    <p class="form-sub">请输入你的新密码。</p>
+                    <form id="reset-form" class="stack" novalidate>
+                        <div class="field">
+                            <label class="label" for="in-new-password">新密码</label>
+                            <div class="pw-wrap">
+                                <input class="input" id="in-new-password" type="password" placeholder="至少 6 位" autocomplete="new-password" style="padding-right:56px;">
+                                <button type="button" class="pw-toggle" data-target="in-new-password">显示</button>
+                            </div>
+                        </div>
+                        <div id="reset-msg" class="msg hidden"></div>
+                        <button type="submit" class="btn btn-primary btn-lg btn-block">保存并进入</button>
+                    </form>
+                </section>
+
+                <!-- 注册成功，等待邮箱验证 -->
+                <section id="pane-verify" class="hidden" style="text-align:center;">
+                    <div class="empty-art" style="margin:0 auto 18px;">📬</div>
+                    <h2 class="form-title">去邮箱看看吧</h2>
+                    <p class="form-sub" id="verify-text">验证邮件已发送，点击邮件中的链接即可完成注册。</p>
+                    <button class="btn btn-ghost btn-block" id="btn-back-2">返回登录</button>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+    (function () {
+        const $ = id => document.getElementById(id);
+        Auth.init();
+
+        let mode = 'login';
+        const panes = ['pane-auth', 'pane-forgot', 'pane-reset', 'pane-verify'];
+        const show = id => panes.forEach(p => $(p).classList.toggle('hidden', p !== id));
+
+        function setMsg(el, text, type = 'err') {
+            el.className = `msg ${type}`;
+            el.textContent = text;
+            el.classList.toggle('hidden', !text);
+        }
+
+        function setMode(m) {
+            mode = m;
+            $('tab-login').classList.toggle('active', m === 'login');
+            $('tab-signup').classList.toggle('active', m === 'signup');
+            $('field-nickname').classList.toggle('hidden', m !== 'signup');
+            $('pw-strength').classList.toggle('hidden', m !== 'signup');
+            $('btn-forgot').classList.toggle('hidden', m !== 'login');
+            $('auth-title').textContent = m === 'login' ? '欢迎回来 👋' : '创建账号 🌈';
+            $('auth-sub').textContent = m === 'login' ? '登录后继续你的秋招备战' : '30 秒注册，备战数据云端同步';
+            $('btn-submit').textContent = m === 'login' ? '登录' : '注册';
+            $('in-password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+            setMsg($('auth-msg'), '');
+        }
+
+        $('tab-login').onclick = () => setMode('login');
+        $('tab-signup').onclick = () => setMode('signup');
+        $('btn-forgot').onclick = () => { $('in-forgot-email').value = $('in-email').value; show('pane-forgot'); };
+        $('btn-back-1').onclick = () => show('pane-auth');
+        $('btn-back-2').onclick = () => { setMode('login'); show('pane-auth'); };
+
+        document.querySelectorAll('.pw-toggle').forEach(b => b.onclick = () => {
+            const input = $(b.dataset.target);
+            input.type = input.type === 'password' ? 'text' : 'password';
+            b.textContent = input.type === 'password' ? '显示' : '隐藏';
+        });
+
+        $('in-password').addEventListener('input', e => {
+            const v = e.target.value;
+            let s = 0;
+            if (v.length >= 6) s++;
+            if (v.length >= 10) s++;
+            if (/[A-Z]/.test(v) && /\d/.test(v) || /[^A-Za-z0-9]/.test(v)) s++;
+            $('pw-strength').className = `strength s${Math.min(s, 3)}` + (mode === 'signup' ? '' : ' hidden');
+        });
+
+        const goApp = () => window.location.replace('index.html');
+
+        // 未配置 Supabase：只允许游客模式
+        if (!Auth.enabled) {
+            $('config-warning').classList.remove('hidden');
+            $('auth-form').querySelectorAll('input, button').forEach(el => el.disabled = true);
+            document.querySelector('.seg-auth').style.opacity = '.5';
+        }
+        if (!Auth.guestAllowed()) $('guest-block').classList.add('hidden');
+
+        $('btn-guest').onclick = () => { Auth.enterGuest(); goApp(); };
+
+        $('auth-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            const email = $('in-email').value.trim();
+            const password = $('in-password').value;
+            const msg = $('auth-msg');
+            if (!/^\S+@\S+\.\S+$/.test(email)) return setMsg(msg, '请输入正确的邮箱地址');
+            if (password.length < 6) return setMsg(msg, '密码至少需要 6 位');
+
+            const btn = $('btn-submit');
+            btn.disabled = true;
+            const label = btn.textContent;
+            btn.textContent = mode === 'login' ? '登录中...' : '注册中...';
+            try {
+                if (mode === 'login') {
+                    await Auth.signIn(email, password);
+                    goApp();
+                } else {
+                    const data = await Auth.signUp(email, password, $('in-nickname').value.trim());
+                    if (data.session) goApp();
+                    else {
+                        $('verify-text').textContent = `验证邮件已发送到 ${email}，点击邮件中的链接即可完成注册并自动登录。`;
+                        show('pane-verify');
+                    }
+                }
+            } catch (err) {
+                setMsg(msg, Auth.friendlyError(err));
+            } finally {
+                btn.disabled = false;
+                btn.textContent = label;
+            }
+        });
+
+        $('forgot-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            const email = $('in-forgot-email').value.trim();
+            if (!/^\S+@\S+\.\S+$/.test(email)) return setMsg($('forgot-msg'), '请输入正确的邮箱地址');
+            try {
+                await Auth.sendResetEmail(email);
+                setMsg($('forgot-msg'), '重置邮件已发送，请查收（也看看垃圾邮件箱）。', 'ok');
+            } catch (err) {
+                setMsg($('forgot-msg'), Auth.friendlyError(err));
+            }
+        });
+
+        $('reset-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            const pw = $('in-new-password').value;
+            if (pw.length < 6) return setMsg($('reset-msg'), '密码至少需要 6 位');
+            try {
+                await Auth.updatePassword(pw);
+                setMsg($('reset-msg'), '密码已更新，正在进入...', 'ok');
+                setTimeout(goApp, 800);
+            } catch (err) {
+                setMsg($('reset-msg'), Auth.friendlyError(err));
+            }
+        });
+
+        // 启动：重置密码链接 / 已登录直接进入
+        (async () => {
+            if (!Auth.enabled) return;
+            const isReset = new URLSearchParams(location.search).get('mode') === 'reset' || location.hash.includes('type=recovery');
+            Auth.client.auth.onAuthStateChange(event => {
+                if (event === 'PASSWORD_RECOVERY') show('pane-reset');
+            });
+            if (isReset) { show('pane-reset'); return; }
+            const user = await Auth.getUser();
+            if (user) goApp();
+        })();
+    })();
+    </script>
+</body>
+</html>
