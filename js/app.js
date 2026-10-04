@@ -1,1434 +1,1019 @@
-document.addEventListener('DOMContentLoaded', () => {
-    initApp();
-});
+// ============================================================
+// Offer Copilot — 主应用逻辑
+// 依赖：config.js / auth.js / store.js / prompts.js / resume.js
+// ============================================================
 
-let state = {
-    settings: { apiKey: '', apiBase: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-    resumes: [
-        { id: 'resume_a', name: '简历版本 A (例如：策略/运营方向)', content: '' },
-        { id: 'resume_b', name: '简历版本 B (例如：产品/产品运营方向)', content: '' },
-        { id: 'resume_c', name: '简历版本 C (例如：数据分析方向)', content: '' }
-    ],
-    applications: [], 
-    events: [], // 🌟 新增：秋招日程数组 { id, appId, title, date, startTime, endTime, type, notes }
-    activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} },
-    activeAppId: null, // 🌟 新增：标记当前工作台会话绑定的看板记录 id（null 表示自由模式，不挂载到任何投递记录）
-    calendarViewDate: new Date(), // 🌟 新增：日历当前展示的月份/周（用于翻页）
-    calendarViewMode: 'month' // 🌟 新增：'month' 或 'week'，控制日历主视图展示模式
-};
+// ---------------- 工具函数 ----------------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const uid = (p) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-function initApp() {
-    const savedSettings = localStorage.getItem('interview_prep_settings');
-    if (savedSettings) state.settings = JSON.parse(savedSettings);
-    const savedResumes = localStorage.getItem('interview_prep_resumes');
-    if (savedResumes) state.resumes = JSON.parse(savedResumes);
-    
-    const savedApps = localStorage.getItem('interview_prep_apps');
-    if (savedApps) state.applications = JSON.parse(savedApps);
-
-    const savedEvents = localStorage.getItem('interview_prep_events');
-    if (savedEvents) state.events = JSON.parse(savedEvents);
-
-    // 🌟 新增：恢复上一次生成的备战会话（公司/岗位/JD/五份报告）
-    const savedSession = localStorage.getItem('interview_prep_active_session');
-    if (savedSession) {
-        try {
-            state.activeSession = JSON.parse(savedSession);
-        } catch (e) {
-            console.warn('恢复上次会话失败:', e);
-        }
-    }
-    const savedActiveAppId = localStorage.getItem('interview_prep_active_app_id');
-    if (savedActiveAppId) state.activeAppId = JSON.parse(savedActiveAppId);
-
-    const today = new Date().toISOString().split('T')[0];
-    const dateInput = document.getElementById('track-date');
-    if (dateInput) dateInput.value = today;
-
-    // 配置 pdf.js worker（CDN 版本需手动指定 worker 路径，否则解析时会报错）
-    if (window['pdfjsLib']) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
-
-    renderResumeBankInputs();
-    renderApplications(); 
-    setupEventListeners();
-    checkApiKeyStatus();
-    restoreActiveSessionToUI(); // 🌟 新增：把恢复的工作台会话渲染回页面
-    restoreDebriefSessionToUI(); // 🌟 新增：把恢复的录音复盘会话渲染回页面
-    renderCalendarView(); // 🌟 新增：渲染日历（月视图或周视图，取决于当前模式）
-    renderUpcomingEvents(); // 🌟 新增：渲染近期日程列表
+function toast(text, type = 'ok', ms = 2600) {
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = text;
+    $('toasts').appendChild(el);
+    setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, ms);
 }
 
-// 🌟 新增：把上次的录音复盘结果渲染回界面
-function restoreDebriefSessionToUI() {
-    const saved = localStorage.getItem('interview_prep_debrief_session');
-    if (!saved) return;
-    try {
-        const session = JSON.parse(saved);
-        if (!session.report) return;
-
-        if (session.company) document.getElementById('debrief-company').value = session.company;
-        if (session.role) document.getElementById('debrief-role').value = session.role;
-        if (session.jd) document.getElementById('debrief-jd').value = session.jd;
-        if (session.transcript) document.getElementById('debrief-transcript').value = session.transcript;
-
-        document.getElementById('debrief-initial-state').classList.add('hidden');
-        const reportRawNode = document.getElementById('debrief-report-raw');
-        if (window.marked && window.marked.parse) {
-            reportRawNode.innerHTML = window.marked.parse(session.report);
-        } else {
-            reportRawNode.innerText = session.report;
-        }
-    } catch (e) {
-        console.warn('恢复复盘会话失败:', e);
-    }
+function md(text) {
+    return window.marked && window.marked.parse ? window.marked.parse(text || '') : esc(text).replace(/\n/g, '<br>');
 }
 
-// 🌟 新增：把 state.activeSession 中保存的结果渲染回工作台界面
-function restoreActiveSessionToUI() {
-    const session = state.activeSession;
-    if (!session || !session.results || Object.keys(session.results).length === 0) return;
-
-    // 回填左侧输入框
-    if (session.companyName) document.getElementById('in-company').value = session.companyName;
-    if (session.roleTitle) document.getElementById('in-role').value = session.roleTitle;
-    if (session.jd) document.getElementById('in-jd').value = session.jd;
-    if (session.region) document.getElementById('in-region').value = session.region;
-    if (session.language) document.getElementById('in-lang').value = session.language;
-
-    // 回填五个 tab 面板
-    const tabKeyToPanel = {
-        match: 'tab-panel-match-raw',
-        business: 'tab-panel-business-raw',
-        intro: 'tab-panel-intro-raw',
-        star: 'tab-panel-star-raw',
-        qa: 'tab-panel-qa-raw'
-    };
-    Object.entries(tabKeyToPanel).forEach(([key, panelId]) => {
-        if (session.results[key]) renderMarkdown(panelId, session.results[key]);
-    });
-
-    // 隐藏初始空状态，默认展示第一个 tab
-    const initialState = document.getElementById('initial-state');
-    if (initialState) initialState.classList.add('hidden');
-    const firstTabBtn = document.querySelector('.tab-btn[data-tab="match"]');
-    if (firstTabBtn) firstTabBtn.click();
-}
-
-// 🌟 新增：清空当前工作台的生成结果（保留输入框内容，仅清空 AI 报告，并解除与看板记录的绑定）
-window.clearActiveSessionResults = () => {
-    if (!confirm('确定要清空当前工作台的全部生成结果吗？此操作不可恢复。')) return;
-    state.activeSession.results = {};
-    localStorage.removeItem('interview_prep_active_session');
-
-    // 如果当前会话绑定了某条看板记录，同步清空该记录的 prepResults
-    if (state.activeAppId) {
-        state.applications = state.applications.map(a => a.id === state.activeAppId ? { ...a, prepResults: {} } : a);
-        localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
-        renderApplications();
-    }
-    state.activeAppId = null;
-    localStorage.removeItem('interview_prep_active_app_id');
-
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
-    const initialState = document.getElementById('initial-state');
-    if (initialState) initialState.classList.remove('hidden');
-};
-
-// 🌟 新增：清空录音复盘报告
-window.clearDebriefResults = () => {
-    if (!confirm('确定要清空当前复盘报告吗？此操作不可恢复。')) return;
-    localStorage.removeItem('interview_prep_debrief_session');
-
-    const reportRawNode = document.getElementById('debrief-report-raw');
-    if (reportRawNode) reportRawNode.innerHTML = '';
-    const initialState = document.getElementById('debrief-initial-state');
-    if (initialState) initialState.classList.remove('hidden');
-};
-
-function checkApiKeyStatus() {
-    const banner = document.getElementById('api-warning-banner');
-    if (!state.settings.apiKey) banner.classList.remove('hidden');
-    else banner.classList.add('hidden');
-}
-
-function renderResumeBankInputs() {
-    const container = document.getElementById('resume-bank-settings-container');
-    if (!container) return;
-    
-    container.innerHTML = state.resumes.map(r => `
-        <div class="mb-4 p-3 border border-zinc-200 rounded-lg bg-zinc-50">
-            <div class="flex items-center justify-between mb-1 gap-2">
-                <label class="block text-xs font-semibold text-zinc-600 flex-1">
-                    <input type="text" value="${r.name}" onchange="updateResumeName('${r.id}', this.value)" class="bg-transparent border-b border-transparent hover:border-zinc-300 font-bold focus:outline-none text-zinc-800 w-full">
-                </label>
-                <label class="shrink-0 px-2.5 py-1 bg-zinc-900 text-white rounded text-[10px] font-bold cursor-pointer hover:bg-zinc-700 transition">
-                    📄 上传 PDF
-                    <input type="file" accept="application/pdf" class="hidden" onchange="handleResumePdfUpload('${r.id}', this)">
-                </label>
-            </div>
-            <p id="pdf-status-${r.id}" class="text-[10px] text-zinc-400 mb-1 min-h-[14px]"></p>
-            <textarea rows="4" placeholder="粘贴该版本的简历文本内容，或点击右上角上传 PDF 自动填入..." onchange="updateResumeContent('${r.id}', this.value)" class="w-full mt-1 p-2 border border-zinc-200 rounded text-xs focus:outline-none font-mono">${r.content || ''}</textarea>
-        </div>
-    `).join('');
-
-    const selectionContainer = document.getElementById('resume-selectors');
-    if (!selectionContainer) return;
-    selectionContainer.innerHTML = state.resumes.map(r => `
-        <label class="flex items-start gap-2 p-2.5 border border-zinc-200 rounded-lg hover:bg-zinc-50 cursor-pointer text-xs">
-            <input type="checkbox" name="selected_resumes" value="${r.id}" class="mt-0.5 rounded">
-            <div>
-                <span class="font-medium text-zinc-800 block">${r.name}</span>
-                <span class="text-[10px] text-zinc-400">${r.content ? '已填入内容 (' + r.content.length + '字)' : '未填入内容'}</span>
-            </div>
-        </label>
-    `).join('');
-}
-
-window.updateResumeName = (id, newName) => {
-    state.resumes = state.resumes.map(r => r.id === id ? { ...r, name: newName } : r);
-    localStorage.setItem('interview_prep_resumes', JSON.stringify(state.resumes));
-    renderResumeBankInputs();
-};
-
-window.updateResumeContent = (id, content) => {
-    state.resumes = state.resumes.map(r => r.id === id ? { ...r, content: content } : r);
-    localStorage.setItem('interview_prep_resumes', JSON.stringify(state.resumes));
-    renderResumeBankInputs();
-};
-
-// 🌟 新增：处理简历 PDF 上传，浏览器端用 pdf.js 提取文字并自动填入对应文本框
-window.handleResumePdfUpload = async (resumeId, inputEl) => {
-    const file = inputEl.files[0];
-    if (!file) return;
-
-    const statusEl = document.getElementById(`pdf-status-${resumeId}`);
-
-    if (!window['pdfjsLib']) {
-        if (statusEl) statusEl.innerText = `❌ PDF 解析库未加载成功，请检查网络后刷新页面重试。`;
-        return;
-    }
-
-    if (statusEl) statusEl.innerText = `⏳ 正在解析「${file.name}」...`;
-
-    try {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-        let fullText = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items.map(item => item.str).join(' ');
-            fullText += pageText + '\n\n';
-        }
-
-        fullText = fullText.trim();
-
-        if (!fullText) {
-            if (statusEl) statusEl.innerText = `⚠️ 未能提取到文字，该 PDF 可能是图片扫描版，请手动粘贴文本。`;
-            return;
-        }
-
-        state.resumes = state.resumes.map(r => r.id === resumeId ? { ...r, content: fullText } : r);
-        localStorage.setItem('interview_prep_resumes', JSON.stringify(state.resumes));
-
-        renderResumeBankInputs();
-        // renderResumeBankInputs 会重新生成 DOM，重新取一次状态提示节点再写入最终结果
-        const refreshedStatusEl = document.getElementById(`pdf-status-${resumeId}`);
-        if (refreshedStatusEl) refreshedStatusEl.innerText = `✅ 已从「${file.name}」提取 ${fullText.length} 字，可在下方文本框校对编辑`;
-
-    } catch (err) {
-        console.error('PDF解析失败:', err);
-        if (statusEl) statusEl.innerText = `❌ 解析失败: ${err.message}`;
-    }
-};
-
-// 核心看板渲染逻辑（终极版：支持行内直接修改 + 下拉框选择）
-function renderApplications() {
-    const tbody = document.getElementById('tracker-table-body');
-    const statsContainer = document.getElementById('tracker-stats');
-    if (!tbody) return;
-
-    if (state.applications.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-stone-400 italic">暂无投递记录，快在左侧添加你的第一个意向吧！</td></tr>`;
-        if (statsContainer) statsContainer.innerHTML = "总计: 0";
-        return;
-    }
-
-    const keywordInput = document.getElementById('search-track-keyword');
-    const statusSelect = document.getElementById('filter-track-status');
-    const keyword = keywordInput ? keywordInput.value.trim().toLowerCase() : '';
-    const statusFilter = statusSelect ? statusSelect.value : '全部';
-
-    const filteredApps = state.applications.filter(app => {
-        const matchesKeyword = !keyword || 
-            (app.company && app.company.toLowerCase().includes(keyword)) || 
-            (app.role && app.role.toLowerCase().includes(keyword));
-        const matchesStatus = statusFilter === '全部' || app.status === statusFilter;
-        return matchesKeyword && matchesStatus;
-    });
-
-    const sortedApps = [...filteredApps].sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    if (sortedApps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-stone-400 italic">没有找到符合筛选条件的投递记录 ☕</td></tr>`;
-    } else {
-        tbody.innerHTML = sortedApps.map(app => {
-            // 🌟 针对公司、Base、薪资：提供行内直接点击修改的能力
-            // 针对岗位名称：如果没有链接，可以编辑；如果有链接，通过小铅笔 ✏️ 单独修改
-            const roleCellHtml = app.link
-    ? `<div class="flex items-center gap-1.5">
-        <a href="${app.link}" target="_blank" rel="noopener noreferrer" class="text-stone-700 hover:text-stone-400 font-medium no-underline hover:underline hover:decoration-stone-300 transition-all">${app.role} 🔗</a>
-        <span onclick="inlineEditPrompt('${app.id}', 'role', '${app.role}')" class="text-stone-300 hover:text-stone-500 cursor-pointer text-[10px]" title="修改岗位名称">✏️</span>
-       </div>`
-    : `<div contenteditable="true" onblur="updateAppField('${app.id}', 'role', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-700">${app.role}</div>`;
-            // 为当前行的优先级匹配背景色类
-            let prioritySelectColor = 'text-stone-600 bg-stone-50 border-stone-200';
-            if (app.priority?.includes('P0')) prioritySelectColor = 'text-red-600 bg-red-50 border-red-200 font-bold';
-            if (app.priority?.includes('P1')) prioritySelectColor = 'text-amber-600 bg-amber-50 border-amber-200';
-
-            const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
-            const prepBtn = hasPrep
-                ? `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[11px] font-bold hover:bg-rose-100 transition cursor-pointer">📂 备战</button>`
-                : `<button onclick="activateAppForPrep('${app.id}')" class="px-2 py-0.5 bg-stone-900 text-white rounded text-[11px] font-bold hover:bg-stone-800 transition cursor-pointer">🚀 备战</button>`;
-
-            return `
-                <tr class="border-b border-stone-100 hover:bg-stone-50/40 transition">
-                    <!-- 1. 时间 -->
-                    <td class="p-3 font-mono text-[11px] text-stone-400">${app.date}</td>
-                    
-                    <!-- 2. 公司 (可直接点击修改) -->
-                    <td class="p-3">
-                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'company', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none font-bold text-stone-800">${app.company}</div>
-                    </td>
-                    
-                    <!-- 3. 目标岗位 (可直接点击修改/带链接带小铅笔) -->
-                    <td class="p-3">${roleCellHtml}</td>
-                    
-                    <!-- 4. Base地 (可直接点击修改) -->
-                    <td class="p-3">
-                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'base', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none text-stone-500 font-medium">${app.base || '—'}</div>
-                    </td>
-                    
-                    <!-- 5. 优先级 (全新升级：点击下拉框直接改，与状态一样方便) -->
-                    <td class="p-3">
-                        <select onchange="updateAppField('${app.id}', 'priority', this.value); renderApplications();" class="text-[10px] px-2 py-0.5 border rounded-full font-medium cursor-pointer outline-none ${prioritySelectColor}">
-                            <option value="P0" ${app.priority === 'P0' ? 'selected' : ''}>P0</option>
-                            <option value="P1" ${(app.priority === 'P1' || !app.priority) ? 'selected' : ''}>P1</option>
-                            <option value="P2" ${app.priority === 'P2' ? 'selected' : ''}>P2</option>
-                        </select>
-                    </td>
-                    
-                    <!-- 6. 薪资 (可直接点击修改) -->
-                    <td class="p-3">
-                        <div contenteditable="true" onblur="updateAppField('${app.id}', 'salary', this.innerText)" class="px-1 py-0.5 rounded hover:bg-stone-100/80 focus:bg-white focus:ring-1 focus:ring-stone-400 outline-none font-mono text-stone-600 text-[11px]">${app.salary || '—'}</div>
-                    </td>
-                    
-                    <!-- 7. 状态 (保留原有) -->
-                    <td class="p-3">
-                        <select onchange="updateAppStatus('${app.id}', this.value)" class="text-[11px] px-2 py-1 rounded border border-stone-200 bg-white font-medium ${getStatusColorClass(app.status)}">
-                            <option value="待投递" ${app.status === '待投递' ? 'selected' : ''}>待投递</option>
-                            <option value="已投递" ${app.status === '已投递' ? 'selected' : ''}>已投递</option>
-                            <option value="笔试中" ${app.status === '笔试中' ? 'selected' : ''}>笔试/测评</option>
-                            <option value="面试中" ${app.status === '面试中' ? 'selected' : ''}>面试中 ⚡</option>
-                            <option value="已拿Offer" ${app.status === '已拿Offer' ? 'selected' : ''}>🎉 收到Offer</option>
-                            <option value="流程终止" ${app.status === '流程终止' ? 'selected' : ''}>流程终止</option>
-                        </select>
-                    </td>
-                    
-                    <!-- 8. 操作 -->
-                    <td class="p-3 text-center flex items-center justify-center gap-1.5">
-                        ${prepBtn}
-                        <button onclick="openEventModalForApp('${app.id}')" class="text-stone-400 hover:text-rose-600 text-xs p-1 cursor-pointer" title="添加日程">📅</button>
-                        <button onclick="startAudioReviewFromBoard('${app.id}')" class="text-stone-400 hover:text-amber-600 text-xs p-1 cursor-pointer" title="录音复盘">🎙️</button>
-                        <button onclick="deleteApp('${app.id}')" class="text-stone-400 hover:text-red-500 text-xs p-1 cursor-pointer">🗑️</button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    const total = state.applications.length;
-    const interviewing = state.applications.filter(a => a.status === '面试中').length;
-    const offers = state.applications.filter(a => a.status === '已拿Offer').length;
-    if (statsContainer) {
-        statsContainer.innerHTML = `<span>总投放: <strong class="text-stone-800">${total}</strong></span> | <span class="text-amber-600 font-bold">面试中: ${interviewing}</span> | <span class="text-green-600 font-bold">Offers: ${offers}</span>`;
-    }
-}
-function getStatusColorClass(status) {
-    if (status === '面试中') return 'text-amber-700 bg-amber-50 border-amber-200 font-bold';
-    if (status === '已拿Offer') return 'text-green-700 bg-green-50 border-green-200 font-bold';
-    if (status === '流程终止') return 'text-zinc-400 bg-zinc-100';
-    if (status === '笔试中') return 'text-blue-700 bg-blue-50 border-blue-200';
-    return 'text-zinc-600 bg-white';
-}
-
-window.updateAppStatus = (id, newStatus) => {
-    state.applications = state.applications.map(a => a.id === id ? { ...a, status: newStatus } : a);
-    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
-    renderApplications();
-};
-
-window.deleteApp = (id) => {
-    if (!confirm('确定要删除这条投递记录吗？')) return;
-    state.applications = state.applications.filter(a => a.id !== id);
-    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
-
-    // 解除该记录关联的所有日程（日程本身保留，只是不再关联到已删除的投递记录）
-    state.events = state.events.map(e => e.appId === id ? { ...e, appId: '' } : e);
-    saveEvents();
-
-    renderApplications();
-    renderCalendarView();
-    renderUpcomingEvents();
-};
-
-window.activateAppForPrep = (id) => {
-    const app = state.applications.find(a => a.id === id);
-    if (!app) return;
-
-    // 🌟 把当前工作台会话绑定到这条投递记录上，后续生成结果会存进这条记录的 prepResults
-    state.activeAppId = id;
-    localStorage.setItem('interview_prep_active_app_id', JSON.stringify(id));
-
-    switchView('workspace');
-    document.getElementById('in-company').value = app.company;
-    document.getElementById('in-role').value = app.role;
-    document.getElementById('in-jd').value = app.jd || '';
-
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-    document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
-
-    const hasPrep = app.prepResults && Object.keys(app.prepResults).length > 0;
-
-    if (hasPrep) {
-        // 已经备战过：直接回填 5 个 tab，不需要重新调用 AI
-        state.activeSession = {
-            companyName: app.company,
-            region: app.region || 'Singapore',
-            roleTitle: app.role,
-            language: app.language || 'bilingual',
-            jd: app.jd || '',
-            results: app.prepResults
-        };
-        document.getElementById('initial-state').classList.add('hidden');
-
-        const tabKeyToPanel = {
-            match: 'tab-panel-match-raw', business: 'tab-panel-business-raw',
-            intro: 'tab-panel-intro-raw', star: 'tab-panel-star-raw', qa: 'tab-panel-qa-raw'
-        };
-        Object.entries(tabKeyToPanel).forEach(([key, panelId]) => {
-            if (app.prepResults[key]) renderMarkdown(panelId, app.prepResults[key]);
-        });
-        document.querySelector('.tab-btn[data-tab="match"]').click();
-    } else {
-        // 还没备战过：清空工作台输出区，等待用户点击生成
-        state.activeSession = { companyName: app.company, region: 'Singapore', roleTitle: app.role, language: 'bilingual', jd: app.jd || '', results: {} };
-        document.getElementById('initial-state').classList.remove('hidden');
-    }
-};
-
-// ================= 四视图核心切换开关 =================
-function switchView(viewName) {
-    const wsNav = document.getElementById('nav-workspace');
-    const trNav = document.getElementById('nav-tracker');
-    const calNav = document.getElementById('nav-calendar');
-    const dbNav = document.getElementById('nav-debrief');
-
-    const wsView = document.getElementById('view-workspace');
-    const trView = document.getElementById('view-tracker');
-    const calView = document.getElementById('view-calendar');
-    const dbView = document.getElementById('view-debrief');
-
-    // 清洗类名
-    const activeClass = "px-4 py-1.5 rounded-md text-xs font-bold transition bg-white text-zinc-950 shadow-xs cursor-pointer";
-    const inactiveClass = "px-4 py-1.5 rounded-md text-xs font-medium text-zinc-500 hover:text-zinc-900 transition cursor-pointer";
-
-    wsView.classList.add('hidden');
-    trView.classList.add('hidden');
-    calView.classList.add('hidden');
-    dbView.classList.add('hidden');
-
-    wsNav.className = inactiveClass;
-    trNav.className = inactiveClass;
-    calNav.className = inactiveClass;
-    dbNav.className = inactiveClass;
-
-    if (viewName === 'workspace') {
-        wsView.classList.remove('hidden');
-        wsNav.className = activeClass;
-    } else if (viewName === 'tracker') {
-        trView.classList.remove('hidden');
-        trNav.className = activeClass;
-        renderApplications();
-    } else if (viewName === 'calendar') {
-        calView.classList.remove('hidden');
-        calNav.className = activeClass;
-        renderCalendarView();
-        renderUpcomingEvents();
-    } else if (viewName === 'debrief') {
-        dbView.classList.remove('hidden');
-        dbNav.className = activeClass;
-    }
-}
-
-// ================= 🌟 新增：秋招日程日历模块 =================
-
-const EVENT_TYPE_CLASS = { '面试': 'type-interview', '笔试': 'type-oa', '其他': 'type-other' };
-const EVENT_TYPE_ICON = { '面试': '🎙️', '笔试': '📝', '其他': '📌' };
-
-function saveEvents() {
-    localStorage.setItem('interview_prep_events', JSON.stringify(state.events));
-}
+function openModal(id) { $(id).classList.remove('hidden'); }
+function closeModal(id) { $(id).classList.add('hidden'); }
 
 function formatDateKey(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// 判断两个时间段是否重叠（同一天内）。没有填开始时间的日程不参与冲突检测。
-function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
-    if (!aStart || !bStart) return false;
-    const aS = aStart, aE = aEnd && aEnd > aStart ? aEnd : aStart;
-    const bS = bStart, bE = bEnd && bEnd > bStart ? bEnd : bStart;
-    return aS < bE && bS < aE;
-}
-
-// 找出某一天里互相冲突的事件 id 集合
-function getConflictingEventIdsForDate(dateKey) {
-    const dayEvents = state.events.filter(e => e.date === dateKey);
-    const conflictIds = new Set();
-    for (let i = 0; i < dayEvents.length; i++) {
-        for (let j = i + 1; j < dayEvents.length; j++) {
-            const a = dayEvents[i], b = dayEvents[j];
-            if (timeRangesOverlap(a.startTime, a.endTime, b.startTime, b.endTime)) {
-                conflictIds.add(a.id);
-                conflictIds.add(b.id);
-            }
-        }
-    }
-    return conflictIds;
-}
-
-// 根据当前 calendarViewMode 渲染对应视图（月视图 / 周时间轴视图）
-function renderCalendarView() {
-    if (state.calendarViewMode === 'week') {
-        document.getElementById('cal-month-view').classList.add('hidden');
-        document.getElementById('cal-week-view').classList.remove('hidden');
-        renderWeekView();
-    } else {
-        document.getElementById('cal-week-view').classList.add('hidden');
-        document.getElementById('cal-month-view').classList.remove('hidden');
-        renderCalendar();
-    }
-    updateViewModeButtonStyles();
-}
-
-function updateViewModeButtonStyles() {
-    const monthBtn = document.getElementById('btn-view-mode-month');
-    const weekBtn = document.getElementById('btn-view-mode-week');
-    if (!monthBtn || !weekBtn) return;
-    monthBtn.classList.toggle('view-mode-active', state.calendarViewMode === 'month');
-    weekBtn.classList.toggle('view-mode-active', state.calendarViewMode === 'week');
-}
-
-function renderCalendar() {
-    const grid = document.getElementById('calendar-grid');
-    const label = document.getElementById('cal-month-label');
-    if (!grid || !label) return;
-
-    const viewDate = state.calendarViewDate;
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth(); // 0-indexed
-
-    label.innerText = `${year} 年 ${month + 1} 月`;
-
-    const firstOfMonth = new Date(year, month, 1);
-    // JS getDay(): 0=周日...6=周六。我们的表头是 一二三四五六日，所以要把周一作为第一列
-    const firstWeekdayMon0 = (firstOfMonth.getDay() + 6) % 7; // 0=周一
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-    const today = new Date();
-    const todayKey = formatDateKey(today);
-
-    let cells = [];
-
-    // 上月填充格
-    for (let i = 0; i < firstWeekdayMon0; i++) {
-        const dayNum = daysInPrevMonth - firstWeekdayMon0 + i + 1;
-        cells.push({ dayNum, otherMonth: true });
-    }
-    // 本月格
-    for (let d = 1; d <= daysInMonth; d++) {
-        cells.push({ dayNum: d, otherMonth: false, dateObj: new Date(year, month, d) });
-    }
-    // 下月填充格，补齐到 7 的整数倍
-    while (cells.length % 7 !== 0) {
-        const dayNum = cells.length - (firstWeekdayMon0 + daysInMonth) + 1;
-        cells.push({ dayNum, otherMonth: true });
-    }
-
-    grid.innerHTML = cells.map(cell => {
-        if (cell.otherMonth) {
-            return `<div class="cal-day cal-day-other-month"><span class="cal-day-number" style="color:#d6d3d1;">${cell.dayNum}</span></div>`;
-        }
-        const dateKey = formatDateKey(cell.dateObj);
-        const isToday = dateKey === todayKey;
-        const dayEvents = state.events.filter(e => e.date === dateKey)
-            .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
-        const conflictIds = getConflictingEventIdsForDate(dateKey);
-
-        const pillsHtml = dayEvents.slice(0, 3).map(e => {
-            const typeClass = EVENT_TYPE_CLASS[e.type] || 'type-other';
-            const conflictClass = conflictIds.has(e.id) ? 'has-conflict' : '';
-            const timeLabel = e.startTime ? e.startTime : '';
-            return `<div class="cal-event-pill ${typeClass} ${conflictClass}" onclick="openEventModal('${e.id}')" title="${e.title}${conflictIds.has(e.id) ? ' ⚠️ 时间冲突' : ''}">${timeLabel ? timeLabel + ' ' : ''}${EVENT_TYPE_ICON[e.type] || ''} ${e.title}</div>`;
-        }).join('');
-        const moreLabel = dayEvents.length > 3 ? `<div class="text-[9px] text-stone-400 px-1">+${dayEvents.length - 3} 更多</div>` : '';
-
-        return `
-            <div class="cal-day ${isToday ? 'cal-day-today' : 'cal-day-current'}">
-                <span class="cal-day-number">${cell.dayNum}</span>
-                ${pillsHtml}
-                ${moreLabel}
-            </div>
-        `;
-    }).join('');
-}
-
-// 给一个 "HH:MM" 时间字符串加一小时，用于点击时间轴格子时给结束时间一个合理默认值
-function addOneHour(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    const newH = (h + 1) % 24;
-    return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
-// 获取本周（周一为起点）的 7 个 Date 对象，基于 state.calendarViewDate
-function getWeekDates(refDate) {
-    const d = new Date(refDate);
-    const weekdayMon0 = (d.getDay() + 6) % 7; // 0=周一
-    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - weekdayMon0);
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-        days.push(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
-    }
-    return days;
-}
-
-const WEEK_DOW_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
-const WEEK_ROW_HEIGHT = 48; // 与 .week-hour-row / .week-hour-cell 的 CSS 高度保持一致
-
-function renderWeekView() {
-    const header = document.getElementById('cal-week-header');
-    const gridContainer = document.getElementById('cal-week-grid');
-    const label = document.getElementById('cal-month-label');
-    if (!header || !gridContainer || !label) return;
-
-    const weekDates = getWeekDates(state.calendarViewDate);
-    const todayKey = formatDateKey(new Date());
-    const firstDay = weekDates[0], lastDay = weekDates[6];
-
-    // 顶部标签：跨月显示 "6月22日 - 6月28日"，跨年显示年份避免歧义
-    const sameMonth = firstDay.getMonth() === lastDay.getMonth();
-    const rangeLabel = sameMonth
-        ? `${firstDay.getFullYear()}年 ${firstDay.getMonth() + 1}月${firstDay.getDate()}日 - ${lastDay.getDate()}日`
-        : `${firstDay.getMonth() + 1}月${firstDay.getDate()}日 - ${lastDay.getMonth() + 1}月${lastDay.getDate()}日`;
-    label.innerText = rangeLabel;
-
-    // 渲染顶部 7 天表头（第一列留空对齐时间刻度列）
-    header.innerHTML = `<div></div>` + weekDates.map(d => {
-        const dateKey = formatDateKey(d);
-        const isToday = dateKey === todayKey;
-        return `<div class="week-day-header-cell ${isToday ? 'is-today' : ''}">
-            <div class="week-day-header-dow">${WEEK_DOW_LABELS[(d.getDay() + 6) % 7]}</div>
-            <div class="week-day-header-num">${d.getDate()}</div>
-        </div>`;
-    }).join('');
-
-    // 渲染主体：左侧时间刻度列 + 7 个可点击的日列
-    let bodyHtml = '';
-
-    // 时间刻度列（24 小时）
-    bodyHtml += `<div>` + Array.from({ length: 24 }, (_, h) =>
-        `<div class="week-hour-row"><div class="week-time-label">${String(h).padStart(2, '0')}:00</div></div>`
-    ).join('') + `</div>`;
-
-    // 7 个日列
-    weekDates.forEach(d => {
-        const dateKey = formatDateKey(d);
-        const isToday = dateKey === todayKey;
-        const dayEvents = state.events.filter(e => e.date === dateKey);
-        const conflictIds = getConflictingEventIdsForDate(dateKey);
-
-        let colHtml = `<div class="week-day-col ${isToday ? 'week-day-col-today' : ''}" style="height:${24 * WEEK_ROW_HEIGHT}px;">`;
-
-        // 24 个可点击空白小时格
-        for (let h = 0; h < 24; h++) {
-            colHtml += `<div class="week-hour-cell" onclick="openEventModal(null, '${dateKey}', '${String(h).padStart(2, '0')}:00')"></div>`;
-        }
-
-        // 当前时间红线（仅今天显示）
-        if (isToday) {
-            const now = new Date();
-            const minutesFromMidnight = now.getHours() * 60 + now.getMinutes();
-            const topPx = (minutesFromMidnight / 60) * WEEK_ROW_HEIGHT;
-            colHtml += `<div class="week-current-time-line" style="top:${topPx}px;"></div>`;
-        }
-
-        // 事件方块（绝对定位叠加在空白格之上）
-        dayEvents.forEach(e => {
-            if (!e.startTime) return; // 没有具体时间的日程不在周时间轴上定位显示，只会出现在左侧近期列表
-            const [sh, sm] = e.startTime.split(':').map(Number);
-            const startMinutes = sh * 60 + sm;
-            let endMinutes = startMinutes + 60; // 默认 1 小时高度
-            if (e.endTime) {
-                const [eh, em] = e.endTime.split(':').map(Number);
-                const candidateEnd = eh * 60 + em;
-                if (candidateEnd > startMinutes) endMinutes = candidateEnd;
-            }
-            const topPx = (startMinutes / 60) * WEEK_ROW_HEIGHT;
-            const heightPx = Math.max(((endMinutes - startMinutes) / 60) * WEEK_ROW_HEIGHT, 22);
-            const typeClass = EVENT_TYPE_CLASS[e.type] || 'type-other';
-            const conflictClass = conflictIds.has(e.id) ? 'has-conflict' : '';
-
-            colHtml += `<div class="week-event-block ${typeClass} ${conflictClass}"
-                style="top:${topPx}px; height:${heightPx}px;"
-                onclick="event.stopPropagation(); openEventModal('${e.id}')"
-                title="${e.title}${conflictIds.has(e.id) ? ' ⚠️ 时间冲突' : ''}">
-                ${EVENT_TYPE_ICON[e.type] || ''} ${e.title}${e.endTime ? `<br>${e.startTime}-${e.endTime}` : `<br>${e.startTime}`}
-            </div>`;
-        });
-
-        colHtml += `</div>`;
-        bodyHtml += colHtml;
-    });
-
-    gridContainer.innerHTML = bodyHtml;
-
-    // 首次渲染时自动滚动到当前时间附近（提前 2 小时，避免红线贴在最顶部）
-    const scrollContainer = document.getElementById('cal-week-scroll-container');
-    if (scrollContainer && !scrollContainer.dataset.scrolledOnce) {
-        const now = new Date();
-        const scrollToPx = Math.max(((now.getHours() - 2) * WEEK_ROW_HEIGHT), 0);
-        scrollContainer.scrollTop = scrollToPx;
-        scrollContainer.dataset.scrolledOnce = 'true';
-    }
-}
-
-function renderUpcomingEvents() {
-    const container = document.getElementById('upcoming-events-list');
-    if (!container) return;
-
-    const todayKey = formatDateKey(new Date());
-    const upcoming = [...state.events]
-        .filter(e => e.date >= todayKey)
-        .sort((a, b) => (a.date + (a.startTime || '00:00')).localeCompare(b.date + (b.startTime || '00:00')));
-
-    if (upcoming.length === 0) {
-        container.innerHTML = `<p class="text-xs text-stone-400 italic text-center py-6">暂无即将到来的日程，点击上方按钮添加吧！</p>`;
-        return;
-    }
-
-    container.innerHTML = upcoming.map(e => {
-        const conflictIds = getConflictingEventIdsForDate(e.date);
-        const isConflict = conflictIds.has(e.id);
-        const linkedApp = e.appId ? state.applications.find(a => a.id === e.appId) : null;
-        const timeRange = e.startTime ? (e.endTime ? `${e.startTime} - ${e.endTime}` : e.startTime) : '时间未定';
-
-        return `
-            <div class="upcoming-event-card ${isConflict ? 'has-conflict' : ''} cursor-pointer" onclick="openEventModal('${e.id}')">
-                <div class="flex justify-between items-start gap-2">
-                    <span class="text-xs font-bold text-stone-800">${EVENT_TYPE_ICON[e.type] || ''} ${e.title}</span>
-                    ${isConflict ? '<span class="text-[10px] text-red-600 font-bold shrink-0">⚠️ 时间冲突</span>' : ''}
-                </div>
-                <div class="text-[10px] text-stone-500 mt-1 font-mono">${e.date} · ${timeRange}</div>
-                ${linkedApp ? `<div class="text-[10px] text-rose-500 mt-1 font-semibold">🔗 关联: ${linkedApp.company} - ${linkedApp.role}</div>` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-// 填充"关联看板投递记录"下拉框选项
-function populateEventAppLinkOptions(selectedAppId) {
-    const select = document.getElementById('event-app-link');
-    if (!select) return;
-    const options = ['<option value="">— 不关联任何记录 —</option>']
-        .concat(state.applications.map(a => `<option value="${a.id}" ${a.id === selectedAppId ? 'selected' : ''}>${a.company} - ${a.role}</option>`));
-    select.innerHTML = options.join('');
-}
-
-// 🌟 新增：从看板某条记录跳转到日历，打开新增日程弹窗并预先关联该记录
-window.openEventModalForApp = (appId) => {
-    switchView('calendar');
-    openEventModal(null);
-    const select = document.getElementById('event-app-link');
-    if (select) select.value = appId;
-    const app = state.applications.find(a => a.id === appId);
-    if (app) document.getElementById('event-title').value = `${app.company} - ${app.role}`;
+// ---------------- 全局状态 ----------------
+const cfg = window.APP_CONFIG || {};
+const state = {
+    user: null,
+    guest: true,
+    llm: { apiKey: '', apiBase: cfg.DEFAULT_API_BASE || 'https://api.deepseek.com/v1', model: cfg.DEFAULT_MODEL || 'deepseek-chat' },
+    resumes: [],
+    applications: [],
+    events: [],
+    activeSession: { companyName: '', region: 'Singapore', roleTitle: '', language: 'bilingual', jd: '', results: {} },
+    activeAppId: null,
+    debriefAppId: null,
+    activeTab: 'match',
+    view: 'workspace',
+    calDate: new Date(),
+    calMode: 'month'
 };
 
-// 打开新增日程弹窗（不传 eventId）或编辑已有日程（传 eventId）
-window.openEventModal = (eventId, prefillDate, prefillStartTime) => {
-    const modal = document.getElementById('event-modal');
-    const titleEl = document.getElementById('event-modal-title');
-    const deleteBtn = document.getElementById('btn-delete-event');
+const STATUSES = [
+    { v: '待投递', label: '待投递', cls: 'st-wish' },
+    { v: '已投递', label: '已投递', cls: 'st-applied' },
+    { v: '笔试中', label: '笔试/测评', cls: 'st-oa' },
+    { v: '面试中', label: '面试中', cls: 'st-interview' },
+    { v: '已拿Offer', label: '🎉 Offer', cls: 'st-offer' },
+    { v: '流程终止', label: '已结束', cls: 'st-end' }
+];
+const statusCls = (v) => (STATUSES.find(s => s.v === v) || STATUSES[0]).cls;
 
-    if (eventId) {
-        const ev = state.events.find(e => e.id === eventId);
-        if (!ev) return;
-        titleEl.innerText = '✏️ 编辑日程';
-        document.getElementById('event-edit-id').value = ev.id;
-        document.getElementById('event-title').value = ev.title || '';
-        document.getElementById('event-date').value = ev.date || '';
-        document.getElementById('event-type').value = ev.type || '面试';
-        document.getElementById('event-start-time').value = ev.startTime || '';
-        document.getElementById('event-end-time').value = ev.endTime || '';
-        document.getElementById('event-notes').value = ev.notes || '';
-        populateEventAppLinkOptions(ev.appId || '');
-        deleteBtn.classList.remove('hidden');
-    } else {
-        titleEl.innerText = '📅 新增面试/笔试日程';
-        document.getElementById('event-edit-id').value = '';
-        document.getElementById('event-title').value = '';
-        document.getElementById('event-date').value = prefillDate || formatDateKey(new Date());
-        document.getElementById('event-type').value = '面试';
-        document.getElementById('event-start-time').value = prefillStartTime || '';
-        // 默认给一个 1 小时的结束时间，方便直接保存（用户仍可自行修改）
-        document.getElementById('event-end-time').value = prefillStartTime ? addOneHour(prefillStartTime) : '';
-        document.getElementById('event-notes').value = '';
-        populateEventAppLinkOptions('');
-        deleteBtn.classList.add('hidden');
-    }
-    modal.classList.remove('hidden');
+const TAB_KEYS = ['match', 'business', 'intro', 'star', 'qa'];
+const TAB_LABELS = { match: '简历匹配', business: '商业拆解', intro: '自我介绍', star: 'STAR 故事', qa: '案例与反问' };
+
+// ---------------- 持久化 ----------------
+const save = {
+    resumes: () => Store.set('resumes', state.resumes),
+    apps: () => Store.set('applications', state.applications),
+    events: () => Store.set('events', state.events),
+    session: () => Store.set('activeSession', state.activeSession),
+    activeApp: () => Store.set('activeAppId', state.activeAppId),
+    llm: () => Store.set('llm', state.llm)
 };
 
-window.closeEventModal = () => {
-    document.getElementById('event-modal').classList.add('hidden');
-};
+function loadState() {
+    const llm = Store.get('llm', null);
+    if (llm) state.llm = { ...state.llm, ...llm };
 
-window.saveEventFromModal = () => {
-    const id = document.getElementById('event-edit-id').value;
-    const title = document.getElementById('event-title').value.trim();
-    const date = document.getElementById('event-date').value;
-    const type = document.getElementById('event-type').value;
-    const startTime = document.getElementById('event-start-time').value;
-    const endTime = document.getElementById('event-end-time').value;
-    const appId = document.getElementById('event-app-link').value;
-    const notes = document.getElementById('event-notes').value.trim();
-
-    if (!title || !date) {
-        alert('请至少填写日程标题和日期！');
-        return;
-    }
-
-    if (id) {
-        state.events = state.events.map(e => e.id === id ? { ...e, title, date, type, startTime, endTime, appId, notes } : e);
-    } else {
-        state.events.push({ id: 'evt_' + Date.now(), title, date, type, startTime, endTime, appId, notes });
-    }
-    saveEvents();
-    closeEventModal();
-    renderCalendarView();
-    renderUpcomingEvents();
-};
-
-window.deleteEventFromModal = () => {
-    const id = document.getElementById('event-edit-id').value;
-    if (!id) return;
-    if (!confirm('确定要删除这条日程吗？')) return;
-    state.events = state.events.filter(e => e.id !== id);
-    saveEvents();
-    closeEventModal();
-    renderCalendarView();
-    renderUpcomingEvents();
-};
-
-function changeCalendarMonth(offset) {
-    const d = state.calendarViewDate;
-    if (state.calendarViewMode === 'week') {
-        state.calendarViewDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset * 7);
-    } else {
-        state.calendarViewDate = new Date(d.getFullYear(), d.getMonth() + offset, 1);
-    }
-    renderCalendarView();
+    state.resumes = (Store.get('resumes', null) || []).map(Resume.normalize);
+    state.applications = (Store.get('applications', []) || []).map(a => ({ ...a, status: a.status === '未投递' ? '待投递' : (a.status || '待投递') }));
+    state.events = Store.get('events', []) || [];
+    const s = Store.get('activeSession', null);
+    if (s) state.activeSession = { ...state.activeSession, ...s, results: s.results || {} };
+    state.activeAppId = Store.get('activeAppId', null);
+    const ui = Store.get('ui', {});
+    if (ui.view) state.view = ui.view;
+    if (ui.calMode) state.calMode = ui.calMode;
 }
 
-// 🌟 新增：跳转到"今天"所在的月/周
-function goToToday() {
-    state.calendarViewDate = new Date();
-    renderCalendarView();
+// ---------------- 启动 ----------------
+document.addEventListener('DOMContentLoaded', boot);
+
+async function boot() {
+    const { user, guest } = await Auth.requireAuth();
+    state.user = user;
+    state.guest = guest;
+    $('boot-text').textContent = user ? '正在同步云端数据...' : '正在加载本地数据...';
+    await Store.init({ user });
+
+    loadState();
+    if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    renderUser();
+    bindGlobal();
+    bindWorkspace();
+    bindTracker();
+    bindCalendar();
+    bindDebrief();
+    Resume.init();
+
+    restoreWorkspace();
+    restoreDebrief();
+    renderResumePicks();
+    renderTracker();
+    renderCalendar();
+    renderUpcoming();
+    updateBadges();
+    checkApiKey();
+    switchView(state.view);
+
+    Store.onStatus(renderSync);
+    $('boot').style.transition = 'opacity .3s';
+    $('boot').style.opacity = '0';
+    setTimeout(() => $('boot').remove(), 300);
 }
 
-// 🌟 新增：切换日历主视图模式（月视图 / 周时间轴视图）
-function setCalendarViewMode(mode) {
-    state.calendarViewMode = mode;
-    // 切换到周视图时重置"已自动滚动"标记，确保每次进入周视图都自动定位到当前时间附近
-    const scrollContainer = document.getElementById('cal-week-scroll-container');
-    if (scrollContainer) delete scrollContainer.dataset.scrolledOnce;
-    renderCalendarView();
+function renderUser() {
+    const name = Auth.displayName(state.user);
+    const initial = (name || '?').slice(0, 1).toUpperCase();
+    $('user-name').textContent = name;
+    $('user-avatar').textContent = initial;
+    $('settings-avatar').textContent = initial;
+    $('settings-name').textContent = name;
+    $('settings-email').textContent = state.user ? state.user.email : '游客模式 · 数据仅保存在本浏览器';
+    $('btn-logout').textContent = state.user ? '退出登录' : '去登录 / 注册';
+    $('hello-name').textContent = name;
+    $('btn-sync-now').classList.toggle('hidden', !state.user);
 }
 
-// ================= 秋招日程日历模块结束 =================
-
-// 🌟 升级版：执行面试录音复盘大模型调用流程（已完美深度联动看板数据隔离）
-async function runDebriefPipeline() {
-    if (!state.settings.apiKey) {
-        alert('请先配置大模型 API 密钥！');
-        document.getElementById('settings-modal').classList.remove('hidden');
-        return;
-    }
-
-    const company = document.getElementById('debrief-company').value.trim();
-    const role = document.getElementById('debrief-role').value.trim();
-    const jd = document.getElementById('debrief-jd').value.trim();
-    const transcript = document.getElementById('debrief-transcript').value.trim();
-
-    if (!company || !role || !transcript) {
-        alert('请完整填写复盘的公司名称、目标岗位，并粘贴面试录音文本！');
-        return;
-    }
-
-    const overlay = document.getElementById('loading-overlay');
-    const logNode = document.getElementById('loading-logs');
-    overlay.classList.remove('hidden');
-    logNode.innerHTML = "";
-
-    const addLog = (text) => {
-        const p = document.createElement('p');
-        p.className = "text-zinc-600 mb-1";
-        p.innerText = `[${new Date().toLocaleTimeString()}] ${text}`;
-        logNode.appendChild(p);
-        logNode.scrollTop = logNode.scrollHeight;
-    };
-
-    try {
-        addLog(`▶ 正在启动针对【${company}-${role}】的首席面试官扫描算法...`);
-        addLog("▶ 正在审阅长文本录音稿并映射核心商业提问点...");
-        
-        const finalPrompt = window.PromptTemplates.interviewDebrief(company, role, jd, transcript);
-        const reportResult = await callLLM(finalPrompt);
-        
-        // 渲染 Markdown
-        document.getElementById('debrief-initial-state').classList.add('hidden');
-        const reportRawNode = document.getElementById('debrief-report-raw');
-        if (window.marked && window.marked.parse) {
-            reportRawNode.innerHTML = window.marked.parse(reportResult);
-        } else {
-            reportRawNode.innerText = reportResult;
-        }
-
-        // 🌟 1. 保留你原有的全局单次会话持久化（做兜底过渡）
-        const debriefSession = { company, role, jd, transcript, report: reportResult };
-        localStorage.setItem('interview_prep_debrief_session', JSON.stringify(debriefSession));
-
-        // 🌟 2. 深度绑定看板功能：如果当前是从看板的某个岗位点击麦克风进来的
-        if (state.activeAppId) {
-            // 在 state 全局状态中找到这个特定岗位
-            const currentApp = state.applications.find(a => a.id === state.activeAppId);
-            if (currentApp) {
-                // 将复盘输入的文本和 AI 报告挂载到这个岗位内部
-                currentApp.debriefJD = jd;
-                currentApp.debriefTranscript = transcript;
-                currentApp.debriefReport = reportResult; 
-            }
-            
-            // 独立在 localStorage 额外存一份以防万一
-            safeSetItem(`debrief_report_${state.activeAppId}`, reportResult);
-            safeSetItem(`debrief_transcript_${state.activeAppId}`, transcript);
-            safeSetItem(`debrief_jd_${state.activeAppId}`, jd);
-
-            // 把看板记录的复盘字段持久化（原代码调用了不存在的 saveApplications/saveToLocalStorage，导致刷新后丢失）
-            if (!safeSetItem('interview_prep_apps', JSON.stringify(state.applications))) {
-                addLog('⚠ 本地存储已满，复盘结果绑定看板记录未能持久化');
-            }
-        }
-
-        addLog("✔ 复盘分析完成！已为您输出高管级全盘诊断报告。");
-        setTimeout(() => overlay.classList.add('hidden'), 800);
-    } catch (error) {
-        addLog(`❌ 复盘失败: ${error.message}`);
-        alert(`流水线突发阻碍: ${error.message}`);
-        setTimeout(() => overlay.classList.add('hidden'), 2000);
-    }
+function renderSync(status) {
+    const text = { local: '仅本地', syncing: '同步中...', synced: '已同步', error: '同步失败', offline: '离线' }[status] || status;
+    ['sync-pill', 'sync-pill-m'].forEach(id => { const el = $(id); if (el) { el.dataset.status = status; el.title = Store.lastError || text; } });
+    $('sync-text').textContent = state.user ? text : '游客 · 仅本地';
 }
 
-// 事件绑定
-function setupEventListeners() {
-    document.getElementById('nav-workspace').addEventListener('click', () => switchView('workspace'));
-    document.getElementById('nav-tracker').addEventListener('click', () => switchView('tracker'));
-    document.getElementById('nav-calendar').addEventListener('click', () => switchView('calendar')); // 新增
-    document.getElementById('nav-debrief').addEventListener('click', () => switchView('debrief')); // 新增
-
-    document.getElementById('btn-run-debrief').addEventListener('click', runDebriefPipeline); // 新增
-
-    // 🌟 新增：日程日历相关事件绑定
-    document.getElementById('btn-cal-prev').addEventListener('click', () => changeCalendarMonth(-1));
-    document.getElementById('btn-cal-next').addEventListener('click', () => changeCalendarMonth(1));
-    document.getElementById('btn-cal-today').addEventListener('click', goToToday);
-    document.getElementById('btn-view-mode-month').addEventListener('click', () => setCalendarViewMode('month'));
-    document.getElementById('btn-view-mode-week').addEventListener('click', () => setCalendarViewMode('week'));
-    document.getElementById('btn-add-event').addEventListener('click', () => openEventModal(null));
-    document.getElementById('btn-close-event-modal').addEventListener('click', closeEventModal);
-    document.getElementById('btn-save-event').addEventListener('click', saveEventFromModal);
-    document.getElementById('btn-delete-event').addEventListener('click', deleteEventFromModal);
-
-    // 🌟 升级版：看板录入监听器（支持 Base城市、优先级、薪资范围持久化）
-document.getElementById('btn-add-track').addEventListener('click', () => {
-    const company = document.getElementById('track-company').value.trim();
-    const role = document.getElementById('track-role').value.trim();
-    const link = document.getElementById('track-link').value.trim();
-    const date = document.getElementById('track-date').value;
-    const status = document.getElementById('track-status').value;
-    const jd = document.getElementById('track-jd').value.trim();
-    
-    // 🌟 新增：提取 3 个新标签的数据
-    const base = document.getElementById('track-base').value.trim();
-    const priority = document.getElementById('track-priority').value;
-    const salary = document.getElementById('track-salary').value.trim();
-
-    if (!company || !role || !date) {
-        alert('请完整填写公司名称、岗位名称和投递日期！');
-        return;
-    }
-
-    // 🌟 将新属性安全挂载到 newApp 节点对象里
-    const newApp = { 
-        id: 'app_' + Date.now(), 
-        company, 
-        role, 
-        link, 
-        date, 
-        status, 
-        jd,
-        base,      // 城市标签
-        priority,  // 优先级标签
-        salary     // 薪资标签
-    };
-    
-    state.applications.push(newApp);
-    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
-
-    // 清空输入框内容（方便下一次录入）
-    document.getElementById('track-company').value = '';
-    document.getElementById('track-role').value = '';
-    document.getElementById('track-link').value = '';
-    document.getElementById('track-jd').value = '';
-    
-    // 🌟 新增：重置标签输入框的值
-    document.getElementById('track-base').value = '';
-    document.getElementById('track-salary').value = '';
-    document.getElementById('track-priority').value = 'P1'; // 恢复默认值
-
-    renderApplications();
-    alert('成功记入秋招漏斗看板！');
-});
-
-    document.getElementById('btn-open-settings').addEventListener('click', () => {
-        document.getElementById('settings-modal').classList.remove('hidden');
-        document.getElementById('cfg-api-key').value = state.settings.apiKey || '';
-        document.getElementById('cfg-api-base').value = state.settings.apiBase || '';
-        document.getElementById('cfg-model').value = state.settings.model || '';
-    });
-    
-    document.getElementById('btn-close-settings').addEventListener('click', () => {
-        document.getElementById('settings-modal').classList.add('hidden');
-    });
-
-    document.getElementById('btn-save-settings').addEventListener('click', () => {
-        state.settings.apiKey = document.getElementById('cfg-api-key').value.trim();
-        state.settings.apiBase = document.getElementById('cfg-api-base').value.trim();
-        state.settings.model = document.getElementById('cfg-model').value.trim();
-        localStorage.setItem('interview_prep_settings', JSON.stringify(state.settings));
-        document.getElementById('settings-modal').classList.add('hidden');
-        checkApiKeyStatus();
-        alert('配置已成功保存！');
-    });
-
-    document.getElementById('btn-run-pipeline').addEventListener('click', runFullPipeline);
-
-    const tabs = document.querySelectorAll('.tab-btn');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('border-zinc-900', 'text-zinc-900'));
-            tab.classList.add('border-zinc-900', 'text-zinc-900');
-
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-            const target = document.getElementById(`tab-panel-${tab.dataset.tab}`);
-            target.classList.remove('hidden');
-
-            // 重置动画，保证重复点击同一个 tab 也能重新触发渐显效果
-            target.style.animation = 'none';
-            void target.offsetWidth; // 强制触发重排
-            target.style.animation = '';
-        });
-    });
+function updateBadges() {
+    $('badge-resumes').textContent = state.resumes.length;
+    $('badge-apps').textContent = state.applications.length;
+    const today = formatDateKey(new Date());
+    const soon = state.events.filter(e => e.date >= today && e.date <= formatDateKey(new Date(Date.now() + 7 * 864e5))).length;
+    $('badge-events').textContent = soon;
+    $('badge-events').classList.toggle('hidden', soon === 0);
 }
 
-window.copyTabContent = (panelId) => {
-    const el = document.getElementById(panelId);
-    if (!el) return;
-    navigator.clipboard.writeText(el.innerText).then(() => alert('内容已成功复制！'));
-};
-
-// 🌟 新增：保存某一步生成结果，同时写入 activeSession（全局临时态）和绑定的看板记录（持久态）
-function persistPipelineResult(key, value) {
-    state.activeSession.results[key] = value;
-    const ok1 = safeSetItem('interview_prep_active_session', JSON.stringify(state.activeSession));
-
-    let ok2 = true;
-    if (state.activeAppId) {
-        state.applications = state.applications.map(a => {
-            if (a.id !== state.activeAppId) return a;
-            const prepResults = { ...(a.prepResults || {}), [key]: value };
-            return { ...a, prepResults };
-        });
-        ok2 = safeSetItem('interview_prep_apps', JSON.stringify(state.applications));
-    }
-    return ok1 && ok2;
+function checkApiKey() {
+    $('api-banner').classList.toggle('hidden', !!state.llm.apiKey);
 }
 
-// ===== 性能优化：两批并行流水线工具函数 =====
-
-// 读取当前勾选/可用的简历对象数组（无勾选时回退为全部有内容的简历）
-function getSelectedResumes() {
-    const checkedBoxes = document.querySelectorAll('input[name="selected_resumes"]:checked');
-    const selected = [];
-    checkedBoxes.forEach(cb => {
-        const res = state.resumes.find(r => r.id === cb.value);
-        if (res && res.content) selected.push(res);
-    });
-    if (selected.length === 0) return state.resumes.filter(r => r.content);
-    return selected;
-}
-
-// 把简历对象数组拼成传给大模型的文本块
-function buildResumeText(resumes) {
-    return resumes.map(res => `=== 简历版本: ${res.name} ===\n${res.content}\n\n`).join('');
-}
-
-// 安全写入 localStorage，捕获配额超限等异常，返回是否成功（非配额异常照常抛出）
-function safeSetItem(key, serialized) {
-    try {
-        localStorage.setItem(key, serialized);
-        return true;
-    } catch (e) {
-        if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
-            console.warn(`localStorage 写入失败（可能已满）：${key}`, e);
-            return false;
-        }
-        throw e;
-    }
-}
-
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-// 清洗简历名：去行首 Markdown 记号、折叠连续空白
-function normalizeResumeName(s) {
-    return String(s).replace(/^[\s#*`>-]+/, '').replace(/[\s#*`]+$/, '').trim().replace(/\s+/g, ' ');
-}
-
-// 判断某份简历是否命中候选名（精确 → 归一 → 子串兜底）。子串只对足够长的候选启用，歧义由调用方的"唯一命中"判定兜底
-function nameMatches(resume, candidate) {
-    const full = resume.name.trim();
-    if (full === candidate) return true;
-    if (normalizeResumeName(resume.name) === candidate) return true;
-    if (candidate.length >= 4) {
-        return full.includes(candidate) || candidate.includes(full);
-    }
+function requireApiKey() {
+    if (state.llm.apiKey) return true;
+    toast('请先配置大模型 API Key', 'err');
+    openSettings();
     return false;
 }
 
-// 从简历匹配结果中解析"推荐的简历版本"，返回批2使用的简历数组；解析失败返回 null（由调用方降级为全部简历）
-function parseRecommendedResume(markdownText, resumes) {
-    const m = markdownText.match(/RECOMMENDED_RESUME:\s*([^\n]+)/i);
-    if (!m) return null;
-    const raw = normalizeResumeName(m[1]);
-    const candidates = [raw];
-    // 默认简历名形如「简历版本 A (例如：...)」，短名是天然第二候选
-    const short = normalizeResumeName(raw.split(/[（(]/)[0]);
-    if (short && short !== raw) candidates.push(short);
-    for (const cand of candidates) {
-        const hits = resumes.filter(r => r.content && nameMatches(r, cand));
-        if (hits.length === 1) return hits;
-    }
-    return null;
+// ---------------- 视图切换 ----------------
+function switchView(view) {
+    state.view = view;
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== `view-${view}`));
+    document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    const viewEl = $(`view-${view}`);
+    if (viewEl) { viewEl.classList.remove('fade-in'); void viewEl.offsetWidth; viewEl.classList.add('fade-in'); }
+    if (view === 'calendar') { renderCalendar(); renderUpcoming(); }
+    if (view === 'tracker') renderTracker();
+    if (view === 'workspace') renderResumePicks();
+    Store.set('ui', { ...Store.get('ui', {}), view });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// 删除输出中的 RECOMMENDED_RESUME 标记行，避免渲染/存储时暴露内部标记
-function stripMarkerLine(md) {
-    return md.split('\n').filter(line => !/RECOMMENDED_RESUME/i.test(line)).join('\n').trim();
+function bindGlobal() {
+    document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+    document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.goto)));
+    document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
+    document.querySelectorAll('.modal-mask').forEach(m => m.addEventListener('mousedown', e => { if (e.target === m && m.id !== 'loading') closeModal(m.id); }));
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') ['event-modal', 'settings-modal', 'track-modal'].forEach(closeModal);
+    });
+
+    [$('btn-open-settings'), $('btn-open-settings-m'), ...document.querySelectorAll('[data-open-settings]')].forEach(b => b && b.addEventListener('click', openSettings));
+    $('btn-save-settings').addEventListener('click', () => {
+        state.llm.apiKey = $('cfg-api-key').value.trim();
+        state.llm.apiBase = $('cfg-api-base').value.trim() || cfg.DEFAULT_API_BASE;
+        state.llm.model = $('cfg-model').value.trim() || cfg.DEFAULT_MODEL;
+        save.llm();
+        checkApiKey();
+        closeModal('settings-modal');
+        toast('设置已保存');
+    });
+    $('btn-logout').addEventListener('click', async () => {
+        if (state.user) {
+            if (!confirm('确定退出登录吗？')) return;
+            await Store.flush();
+        }
+        Auth.signOut();
+    });
+    $('btn-sync-now').addEventListener('click', async () => { await Store.pull(); loadState(); rerenderAll(); toast('已与云端同步'); });
+    $('btn-export').addEventListener('click', exportBackup);
+    $('import-input').addEventListener('change', importBackup);
 }
 
-// 并行流水线单步包装：成功即渲染+持久化+日志；失败记入 ctx 不抛错，单步失败不拖垮整批
-async function runStep(key, panelId, label, buildPrompt, ctx) {
+function openSettings() {
+    $('cfg-api-key').value = state.llm.apiKey || '';
+    $('cfg-api-base').value = state.llm.apiBase || '';
+    $('cfg-model').value = state.llm.model || '';
+    openModal('settings-modal');
+}
+
+function rerenderAll() {
+    restoreWorkspace();
+    restoreDebrief();
+    Resume.renderList();
+    Resume.renderDetail();
+    renderResumePicks();
+    renderTracker();
+    renderCalendar();
+    renderUpcoming();
+    updateBadges();
+}
+
+function exportBackup() {
+    const data = { app: 'offer-copilot', version: 2, exportedAt: new Date().toISOString(), ...Store.snapshot() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `offer-copilot-backup-${formatDateKey(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+async function importBackup(e) {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
     try {
-        const res = await callLLM(buildPrompt(), {
-            onRetry: (attempt, delaySec) => ctx.addLog(`⏳ ${label} 调用异常，${delaySec} 秒后进行第 ${attempt} 次重试...`)
+        const data = JSON.parse(await file.text());
+        if (!confirm('导入会覆盖当前的简历、看板、日程和备战结果，确定继续吗？')) return;
+        ['resumes', 'applications', 'events', 'activeSession', 'activeAppId', 'debrief'].forEach(k => {
+            if (data[k] !== undefined) Store.set(k, data[k]);
         });
-        const clean = stripMarkerLine(res);
-        renderMarkdown(panelId, clean);
-        const persistOk = persistPipelineResult(key, clean);
-        ctx.addLog(`✔ ${label} 完成`);
-        if (!persistOk) ctx.addLog('⚠ 本步结果仅保存在当前页面：浏览器本地存储已满，刷新后可能丢失。建议清理旧投递记录或导出备份。');
-        return { ok: true, result: res };
+        loadState();
+        rerenderAll();
+        toast('备份已导入');
     } catch (err) {
-        ctx.failedSteps.push(label);
-        ctx.addLog(`❌ ${label} 失败: ${err.message}`);
-        return { ok: false };
+        toast('文件格式不正确', 'err');
     }
 }
 
-async function runFullPipeline() {
-    if (!state.settings.apiKey) {
-        alert('请先配置大模型 API 密钥！');
-        document.getElementById('settings-modal').classList.remove('hidden');
-        return;
-    }
-
-    const companyName = document.getElementById('in-company').value.trim();
-    const roleTitle = document.getElementById('in-role').value.trim();
-    const region = document.getElementById('in-region').value;
-    const language = document.getElementById('in-lang').value;
-    const jd = document.getElementById('in-jd').value.trim();
-
-    if (!companyName || !roleTitle || !jd) {
-        alert('请完整填写公司名称、岗位名称以及岗位 JD！');
-        return;
-    }
-
-    const selectedResumes = getSelectedResumes();
-    const resumeTextAll = buildResumeText(selectedResumes);
-
-    state.activeSession = { companyName, region, roleTitle, language, jd, results: {} };
-    const overlay = document.getElementById('loading-overlay');
-    const logNode = document.getElementById('loading-logs');
-    overlay.classList.remove('hidden');
-    logNode.innerHTML = "";
-
-    const addLog = (text) => {
-        const p = document.createElement('p');
-        p.className = "text-zinc-600 mb-1";
-        p.innerText = `[${new Date().toLocaleTimeString()}] ${text}`;
-        logNode.appendChild(p);
-        logNode.scrollTop = logNode.scrollHeight;
-    };
-
-    // 共享上下文：记录失败步骤 + 日志
-    const ctx = { failedSteps: [], addLog };
-
-    try {
-        addLog("▶ 第一批并行启动（3 路）：Step 1 简历匹配 / Step 2 商业背景 / Step 5 场景问答");
-        // 三路加 0-500ms 随机抖动错峰发出，降低触发 API 限流(429)的概率
-        const b1 = await Promise.allSettled([
-            sleep(Math.random() * 500).then(() => runStep('match', 'tab-panel-match-raw', 'Step 1 简历匹配', () => window.PromptTemplates.resumeSelection(resumeTextAll, jd, region, language), ctx)),
-            sleep(Math.random() * 500).then(() => runStep('business', 'tab-panel-business-raw', 'Step 2 商业背景', () => window.PromptTemplates.businessContext(companyName, jd, region), ctx)),
-            sleep(Math.random() * 500).then(() => runStep('qa', 'tab-panel-qa-raw', 'Step 5 场景问答', () => window.PromptTemplates.businessPrepAndQuestions(companyName, jd, language), ctx))
-        ]);
-        const b1OkCount = b1.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-        addLog(b1OkCount === 3 ? "✅ 第一批完成：3 路全部成功" : `⚠ 第一批完成：${b1OkCount} 路成功、${3 - b1OkCount} 路失败`);
-
-        // 从 Step 1 结果解析推荐简历；解析失败（或 Step 1 本身失败）时降级为全部简历
-        let resumesForStep34 = selectedResumes;
-        const matchResult = (b1[0].status === 'fulfilled' && b1[0].value.ok) ? b1[0].value.result : null;
-        if (matchResult) {
-            const recommended = parseRecommendedResume(matchResult, selectedResumes);
-            if (recommended) {
-                resumesForStep34 = recommended;
-                addLog(`✔ 已识别推荐简历「${recommended.map(r => r.name).join('、')}」，Step 3/4 将只输入该版本（大幅降低输入 token）`);
-            } else {
-                addLog("⚠ 未能识别推荐简历，Step 3/4 回退使用全部简历");
-            }
-        } else {
-            addLog("⚠ Step 1 简历匹配失败，Step 3/4 回退使用全部简历");
-        }
-
-        addLog("▶ 第二批并行启动（2 路）：Step 3 自述 / Step 4 STAR 故事");
-        const resumeText34 = buildResumeText(resumesForStep34);
-        await Promise.allSettled([
-            runStep('intro', 'tab-panel-intro-raw', 'Step 3 自述', () => window.PromptTemplates.selfIntroduction(resumeText34, jd, language, region), ctx),
-            runStep('star', 'tab-panel-star-raw', 'Step 4 STAR 故事', () => window.PromptTemplates.starStories(resumeText34, jd, language, region), ctx)
-        ]);
-
-        if (ctx.failedSteps.length === 0) {
-            addLog("✔ 管道流完整处理完成（两批并行）");
-            setTimeout(() => {
-                overlay.classList.add('hidden');
-                document.querySelector('.tab-btn[data-tab="match"]').click();
-            }, 800);
-        } else {
-            addLog(`⚠ 部分步骤失败：${ctx.failedSteps.join('、')}，可点击"生成"重跑整个流水线`);
-            alert(`以下步骤失败：${ctx.failedSteps.join('、')}，可重新生成重试`);
-            setTimeout(() => overlay.classList.add('hidden'), 2000);
-        }
-    } catch (error) {
-        addLog(`❌ 出错了: ${error.message}`);
-        alert(`流水线阻碍: ${error.message}`);
-        setTimeout(() => overlay.classList.add('hidden'), 3000);
-    }
-}
-
-// 调用大模型：支持超时（AbortController）+ 失败重试（指数退避 + 抖动）。可重试：超时/网络/429/5xx；不重试：4xx、JSON 解析异常、响应结构异常。
-async function callLLM(prompt, { timeoutMs = 300000, retries = 2, retryDelayMs = 1500, maxDelayMs = 6000, onRetry } = {}) {
-    const url = `${state.settings.apiBase.replace(/\/$/, '')}/chat/completions`;
-    const body = JSON.stringify({
-        model: state.settings.model,
+// ---------------- 大模型调用 ----------------
+// 支持超时 + 指数退避重试；可重试：超时 / 网络错误 / 429 / 5xx
+async function callLLM(prompt, { timeoutMs = 300000, retries = 2, json = false, temperature = 0.3, onRetry } = {}) {
+    const url = `${state.llm.apiBase.replace(/\/$/, '')}/chat/completions`;
+    const payload = {
+        model: state.llm.model,
         messages: [
             { role: 'system', content: 'You are an elite all-in-one career platform backend assistant.' },
             { role: 'user', content: prompt }
         ],
-        temperature: 0.3
-    });
-    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.settings.apiKey}` };
+        temperature
+    };
+    if (json) payload.response_format = { type: 'json_object' };
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${state.llm.apiKey}` };
 
     let lastErr = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        let shouldRetry = false;
+        let retry = false;
         try {
-            const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
-            if (!response.ok) {
-                const detail = await response.text();
-                lastErr = new Error(`HTTP ${response.status}: ${detail}`);
-                // 429（限流）/ 5xx 可重试；其余 4xx 立即失败
-                shouldRetry = response.status === 429 || response.status >= 500;
+            const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload), signal: controller.signal });
+            if (!res.ok) {
+                const detail = await res.text();
+                lastErr = new Error(res.status === 401 ? 'API Key 无效（401）' : `HTTP ${res.status}: ${detail.slice(0, 200)}`);
+                retry = res.status === 429 || res.status >= 500;
             } else {
-                const data = await response.json();
-                if (!data.choices || !data.choices[0] || !data.choices[0].message) throw new Error('响应结构异常：缺少 choices[0].message');
-                return data.choices[0].message.content;
+                const data = await res.json();
+                const content = data?.choices?.[0]?.message?.content;
+                if (content == null) throw new Error('响应结构异常：缺少 choices[0].message');
+                return content;
             }
         } catch (err) {
-            if (err.name === 'AbortError') {
-                lastErr = new Error(`请求超时（${Math.round(timeoutMs / 1000)}s）`);
-                shouldRetry = true;
-            } else if (err instanceof SyntaxError) {
-                throw err; // JSON 解析失败不重试
-            } else if (err instanceof TypeError) {
-                lastErr = err; // fetch 网络层失败，可重试
-                shouldRetry = true;
-            } else {
-                lastErr = err;
-                shouldRetry = false; // 响应结构异常等，不重试
-            }
+            if (err.name === 'AbortError') { lastErr = new Error(`请求超时（${Math.round(timeoutMs / 1000)}s）`); retry = true; }
+            else if (err instanceof TypeError) { lastErr = new Error('网络请求失败，请检查网络或 API 地址'); retry = true; }
+            else { lastErr = err; retry = false; }
         } finally {
             clearTimeout(timer);
         }
-
-        if (!shouldRetry) throw lastErr;
-        if (attempt >= retries) break;
-        const delay = Math.min(retryDelayMs * Math.pow(2, attempt), maxDelayMs) + Math.random() * 400;
-        if (onRetry) onRetry(attempt + 1, Math.round(delay / 1000));
+        if (!retry || attempt >= retries) break;
+        const delay = Math.min(1500 * 2 ** attempt, 6000) + Math.random() * 400;
+        onRetry && onRetry(attempt + 1, Math.round(delay / 1000));
         await sleep(delay);
     }
     throw lastErr || new Error('大模型调用失败');
 }
+window.callLLM = callLLM;
 
-function renderMarkdown(elementId, markdownText) {
-    const target = document.getElementById(elementId);
-    if (target && window.marked && window.marked.parse) target.innerHTML = window.marked.parse(markdownText);
+// ---------------- 加载面板 ----------------
+const Loader = {
+    open(title, sub, steps) {
+        $('loading-title').textContent = title;
+        $('loading-sub').textContent = sub;
+        $('loading-logs').innerHTML = '';
+        $('loading-steps').innerHTML = (steps || []).map(s => `<div class="step" data-step="${s.key}"><div class="bar"></div>${esc(s.label)}</div>`).join('');
+        $('loading-steps').classList.toggle('hidden', !steps || !steps.length);
+        $('loading-steps').style.gridTemplateColumns = `repeat(${(steps || []).length || 1}, 1fr)`;
+        openModal('loading');
+    },
+    step(key, st) {
+        const el = document.querySelector(`#loading-steps [data-step="${key}"]`);
+        if (el) el.className = `step ${st}`;
+    },
+    log(text) {
+        const p = document.createElement('div');
+        p.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+        $('loading-logs').appendChild(p);
+        $('loading-logs').scrollTop = 1e9;
+    },
+    close(delay = 600) { setTimeout(() => closeModal('loading'), delay); }
+};
+
+// ================================================================
+// 备战工作台
+// ================================================================
+function bindWorkspace() {
+    Pager.register('picks', renderResumePicks);
+    $('resume-picks').addEventListener('change', e => {
+        if (e.target.name !== 'pick-resume') return;
+        e.target.checked ? unpicked.delete(e.target.value) : unpicked.add(e.target.value);
+        renderResumePicks();
+    });
+    document.querySelectorAll('#result-tabs .tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+    $('btn-run-pipeline').addEventListener('click', runPipeline);
+    $('btn-clear-results').addEventListener('click', clearResults);
+    $('btn-copy-tab').addEventListener('click', () => {
+        const text = state.activeSession.results[state.activeTab];
+        if (!text) return toast('当前标签页还没有内容', 'err');
+        navigator.clipboard.writeText(text).then(() => toast('已复制（Markdown 格式）'));
+    });
 }
-/**
- * 从看板一键联动到录音复盘模块
- * @param {string} appId 投递记录ID
- */
-function startAudioReviewFromBoard(appId) {
-    const app = state.applications.find(a => a.id === appId);
-    if (!app) {
-        alert("未找到该岗位的相关信息");
+
+function showTab(key) {
+    state.activeTab = key;
+    document.querySelectorAll('#result-tabs .tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === key);
+        b.classList.toggle('has-result', !!state.activeSession.results[b.dataset.tab]);
+    });
+    const hasAny = TAB_KEYS.some(k => state.activeSession.results[k]);
+    $('ws-empty').classList.toggle('hidden', hasAny);
+    TAB_KEYS.forEach(k => {
+        const panel = $(`tab-panel-${k}`);
+        const show = hasAny && k === key;
+        panel.classList.toggle('hidden', !show);
+        if (show) {
+            if (!state.activeSession.results[k]) panel.innerHTML = `<div class="empty"><div class="empty-art">⏳</div><h3>这一项还没有生成</h3><p>重新运行生成即可补齐。</p></div>`;
+            panel.classList.remove('fade-in'); void panel.offsetWidth; panel.classList.add('fade-in');
+        }
+    });
+}
+
+function renderResultPanels() {
+    TAB_KEYS.forEach(k => {
+        const v = state.activeSession.results[k];
+        Pager.renderReport(`tab-panel-${k}`, v, { reset: true });
+    });
+    showTab(state.activeTab);
+}
+
+function restoreWorkspace() {
+    const s = state.activeSession;
+    $('in-company').value = s.companyName || '';
+    $('in-role').value = s.roleTitle || '';
+    $('in-jd').value = s.jd || '';
+    $('in-region').value = s.region || 'Singapore';
+    $('in-lang').value = s.language || 'bilingual';
+    renderResultPanels();
+    renderBoundChip();
+}
+
+function renderBoundChip() {
+    const app = state.activeAppId && state.applications.find(a => a.id === state.activeAppId);
+    const el = $('bound-app-chip');
+    if (!app) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.innerHTML = `<span class="chip chip-pink" style="font-size:12px;padding:7px 8px 7px 12px;">🔗 结果将保存到：${esc(app.company)} · ${esc(app.role)}
+        <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" title="解除关联" id="btn-unbind">✕</button></span>`;
+    $('btn-unbind').onclick = () => { state.activeAppId = null; save.activeApp(); renderBoundChip(); toast('已解除关联，进入自由模式'); };
+}
+
+// 勾选状态存在内存里（只记录被取消勾选的简历），这样翻页后勾选不会丢；新上传的简历默认勾选
+const PICKS_PAGE_SIZE = 4;
+const unpicked = new Set();
+
+function renderResumePicks() {
+    const box = $('resume-picks');
+    const usable = state.resumes.filter(r => Resume.textOf(r));
+    if (!usable.length) {
+        box.innerHTML = `<div class="pick" style="cursor:pointer;border-style:dashed;justify-content:center;color:var(--muted);font-size:13px;font-weight:600;" data-goto-resumes>📄 还没有简历，去上传 PDF →</div>`;
+        box.querySelector('[data-goto-resumes]').onclick = () => switchView('resumes');
+        return;
+    }
+    const pg = Pager.slice('picks', usable, PICKS_PAGE_SIZE);
+    const picked = usable.filter(r => !unpicked.has(r.id)).length;
+    box.innerHTML = pg.items.map(r => {
+        const tags = (r.structured?.tags || []).slice(0, 2).map(t => `<span class="chip" style="font-size:10px;padding:2px 7px;">${esc(t)}</span>`).join('');
+        return `<label class="pick">
+            <input type="checkbox" name="pick-resume" value="${r.id}" ${unpicked.has(r.id) ? '' : 'checked'}>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.name)}</div>
+                <div class="flex gap-1 items-center" style="margin-top:3px;">${tags}<span style="font-size:11px;color:var(--muted);">${Resume.textOf(r).length} 字</span></div>
+            </div>
+        </label>`;
+    }).join('') + (pg.count > 1
+        ? `<div class="flex items-center justify-between" style="margin-top:2px;"><span class="pager-info">已选 ${picked} / ${usable.length} 份</span><div class="pager-btns">
+            <button class="pager-btn arrow" data-pager="picks" data-page="${pg.page - 1}" ${pg.page <= 1 ? 'disabled' : ''}>‹</button>
+            <span class="pager-info" style="padding:0 6px;">${pg.page} / ${pg.count}</span>
+            <button class="pager-btn arrow" data-pager="picks" data-page="${pg.page + 1}" ${pg.page >= pg.count ? 'disabled' : ''}>›</button></div></div>`
+        : '');
+}
+
+function selectOnlyResume(id) {
+    unpicked.clear();
+    state.resumes.forEach(r => { if (r.id !== id) unpicked.add(r.id); });
+    const usable = state.resumes.filter(r => Resume.textOf(r));
+    const idx = usable.findIndex(r => r.id === id);
+    Pager.set('picks', idx >= 0 ? Math.floor(idx / PICKS_PAGE_SIZE) + 1 : 1);
+    renderResumePicks();
+}
+
+function getSelectedResumes() {
+    const usable = state.resumes.filter(r => Resume.textOf(r));
+    const list = usable.filter(r => !unpicked.has(r.id));
+    return list.length ? list : usable;
+}
+
+const buildResumeText = (list) => list.map(r => `=== 简历版本: ${r.name} ===\n${Resume.textOf(r)}\n\n`).join('');
+
+function normalizeName(s) {
+    return String(s).replace(/^[\s#*`>-]+/, '').replace(/[\s#*`]+$/, '').trim().replace(/\s+/g, ' ');
+}
+
+function parseRecommendedResume(text, list) {
+    const m = text.match(/RECOMMENDED_RESUME:\s*([^\n]+)/i);
+    if (!m) return null;
+    const raw = normalizeName(m[1]);
+    const cands = [raw];
+    const short = normalizeName(raw.split(/[（(]/)[0]);
+    if (short && short !== raw) cands.push(short);
+    for (const c of cands) {
+        const hits = list.filter(r => {
+            const full = r.name.trim();
+            return full === c || normalizeName(full) === c || (c.length >= 4 && (full.includes(c) || c.includes(full)));
+        });
+        if (hits.length === 1) return hits;
+    }
+    return null;
+}
+
+const stripMarker = (t) => t.split('\n').filter(l => !/RECOMMENDED_RESUME/i.test(l)).join('\n').trim();
+
+function persistResult(key, value) {
+    state.activeSession.results[key] = value;
+    let ok = save.session();
+    if (state.activeAppId) {
+        state.applications = state.applications.map(a => a.id === state.activeAppId ? { ...a, prepResults: { ...(a.prepResults || {}), [key]: value } } : a);
+        ok = save.apps() && ok;
+    }
+    return ok;
+}
+
+async function runStep(key, buildPrompt, ctx) {
+    Loader.step(key, 'run');
+    try {
+        const res = await callLLM(buildPrompt(), { onRetry: (n, s) => Loader.log(`⏳ ${TAB_LABELS[key]} 调用异常，${s} 秒后第 ${n} 次重试`) });
+        const clean = stripMarker(res);
+        if (!persistResult(key, clean)) Loader.log('⚠ 浏览器存储空间已满，本步结果刷新后可能丢失');
+        Pager.renderReport(`tab-panel-${key}`, clean, { reset: true });
+        if (ctx.first) { ctx.first = false; showTab(key); } else showTab(state.activeTab);
+        Loader.step(key, 'done');
+        Loader.log(`✔ ${TAB_LABELS[key]} 完成`);
+        return { ok: true, result: res };
+    } catch (err) {
+        ctx.failed.push(TAB_LABELS[key]);
+        Loader.step(key, 'fail');
+        Loader.log(`✖ ${TAB_LABELS[key]} 失败：${err.message}`);
+        return { ok: false };
+    }
+}
+
+async function runPipeline() {
+    if (!requireApiKey()) return;
+    const companyName = $('in-company').value.trim();
+    const roleTitle = $('in-role').value.trim();
+    const region = $('in-region').value;
+    const language = $('in-lang').value;
+    const jd = $('in-jd').value.trim();
+    if (!companyName || !roleTitle || !jd) return toast('请填写公司、岗位和 JD', 'err');
+
+    const selected = getSelectedResumes();
+    if (!selected.length) {
+        toast('简历库还是空的，先上传一份简历吧', 'err');
+        return switchView('resumes');
+    }
+
+    state.activeSession = { companyName, region, roleTitle, language, jd, results: {} };
+    if (state.activeAppId) {
+        state.applications = state.applications.map(a => a.id === state.activeAppId ? { ...a, prepResults: {}, region, language, jd: a.jd || jd } : a);
+        save.apps();
+    }
+    save.session();
+    renderResultPanels();
+
+    Loader.open('AI 正在生成备战报告', '两批并行，约 40-120 秒，请不要刷新页面', TAB_KEYS.map(k => ({ key: k, label: TAB_LABELS[k] })));
+    const ctx = { failed: [], first: true };
+    const allText = buildResumeText(selected);
+    const P = window.PromptTemplates;
+
+    Loader.log('▶ 第一批（3 路并行）：简历匹配 / 商业拆解 / 案例与反问');
+    const b1 = await Promise.all([
+        sleep(Math.random() * 500).then(() => runStep('match', () => P.resumeSelection(allText, jd, region, language), ctx)),
+        sleep(Math.random() * 500).then(() => runStep('business', () => P.businessContext(companyName, jd, region), ctx)),
+        sleep(Math.random() * 500).then(() => runStep('qa', () => P.businessPrepAndQuestions(companyName, jd, language), ctx))
+    ]);
+
+    let forStory = selected;
+    if (b1[0].ok) {
+        const rec = parseRecommendedResume(b1[0].result, selected);
+        if (rec) { forStory = rec; Loader.log(`✔ 推荐简历：「${rec[0].name}」，第二批只使用该版本`); }
+        else Loader.log('⚠ 未识别到推荐简历，第二批使用全部所选简历');
+    }
+
+    Loader.log('▶ 第二批（2 路并行）：自我介绍 / STAR 故事');
+    const storyText = buildResumeText(forStory);
+    await Promise.all([
+        runStep('intro', () => P.selfIntroduction(storyText, jd, language, region), ctx),
+        runStep('star', () => P.starStories(storyText, jd, language, region), ctx)
+    ]);
+
+    renderTracker();
+    if (!ctx.failed.length) {
+        Loader.log('🎉 全部完成！');
+        Loader.close(700);
+        showTab('match');
+        toast('五份备战报告已生成');
+    } else {
+        Loader.log(`⚠ 失败步骤：${ctx.failed.join('、')}。可重新生成。`);
+        Loader.close(2200);
+        toast(`部分失败：${ctx.failed.join('、')}`, 'err', 4000);
+    }
+}
+
+function clearResults() {
+    if (!TAB_KEYS.some(k => state.activeSession.results[k])) return;
+    if (!confirm('确定清空当前生成结果吗？')) return;
+    state.activeSession.results = {};
+    save.session();
+    if (state.activeAppId) {
+        state.applications = state.applications.map(a => a.id === state.activeAppId ? { ...a, prepResults: {} } : a);
+        save.apps();
+    }
+    renderResultPanels();
+    renderTracker();
+}
+
+window.activateAppForPrep = (id) => {
+    const app = state.applications.find(a => a.id === id);
+    if (!app) return;
+    state.activeAppId = id;
+    save.activeApp();
+    state.activeSession = {
+        companyName: app.company, roleTitle: app.role, jd: app.jd || '',
+        region: app.region || 'Singapore', language: app.language || 'bilingual',
+        results: app.prepResults || {}
+    };
+    save.session();
+    state.activeTab = 'match';
+    restoreWorkspace();
+    switchView('workspace');
+};
+
+// ================================================================
+// 投递看板
+// ================================================================
+function bindTracker() {
+    $('track-status').innerHTML = STATUSES.map(s => `<option value="${s.v}">${s.label}</option>`).join('');
+    $('track-status').value = '已投递';
+    $('filter-track').innerHTML = `<option value="all">全部状态</option>` + STATUSES.map(s => `<option value="${s.v}">${s.label}</option>`).join('');
+    $('track-date').value = formatDateKey(new Date());
+    Pager.register('tracker', renderTracker);
+    $('search-track').addEventListener('input', () => { Pager.reset('tracker'); renderTracker(); });
+    $('btn-open-track').addEventListener('click', () => {
+        $('track-date').value = formatDateKey(new Date());
+        openModal('track-modal');
+        setTimeout(() => { if (document.activeElement === document.body) $('track-company').focus(); }, 50);
+    });
+    $('filter-track').addEventListener('change', () => { Pager.reset('tracker'); renderTracker(); });
+
+    $('btn-add-track').addEventListener('click', () => {
+        const v = (id) => $(id).value.trim();
+        const app = {
+            id: uid('app'), company: v('track-company'), role: v('track-role'), link: v('track-link'),
+            date: $('track-date').value, status: $('track-status').value, jd: v('track-jd'),
+            base: v('track-base'), priority: $('track-priority').value, salary: v('track-salary')
+        };
+        if (!app.company || !app.role || !app.date) return toast('请填写公司、岗位和投递日期', 'err');
+        state.applications.push(app);
+        save.apps();
+        ['track-company', 'track-role', 'track-link', 'track-jd', 'track-base', 'track-salary'].forEach(id => $(id).value = '');
+        $('track-priority').value = 'P1';
+        closeModal('track-modal');
+        Pager.reset('tracker');
+        renderTracker();
+        updateBadges();
+        toast(`已添加：${app.company} · ${app.role}`);
+    });
+
+    // 事件委托：表格中的各种操作
+    $('tracker-body').addEventListener('change', e => {
+        const t = e.target;
+        const id = t.closest('tr')?.dataset.id;
+        if (!id) return;
+        if (t.dataset.field) { updateApp(id, t.dataset.field, t.value); renderTracker(); }
+    });
+    $('tracker-body').addEventListener('focusout', e => {
+        const t = e.target;
+        if (!t.matches('[contenteditable][data-field]')) return;
+        const id = t.closest('tr').dataset.id;
+        let val = t.innerText.replace(/[\r\n]/g, '').trim();
+        if (val === '—') val = '';
+        updateApp(id, t.dataset.field, val);
+    });
+    $('tracker-body').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.matches('[contenteditable]')) { e.preventDefault(); e.target.blur(); }
+    });
+    $('tracker-body').addEventListener('click', e => {
+        const b = e.target.closest('[data-act]');
+        if (!b) return;
+        const id = b.closest('tr').dataset.id;
+        const act = b.dataset.act;
+        if (act === 'prep') activateAppForPrep(id);
+        if (act === 'event') openEventModalForApp(id);
+        if (act === 'debrief') startDebriefFromApp(id);
+        if (act === 'delete') deleteApp(id);
+        if (act === 'rename') {
+            const app = state.applications.find(a => a.id === id);
+            const n = prompt('修改岗位名称：', app.role);
+            if (n && n.trim()) { updateApp(id, 'role', n.trim()); renderTracker(); }
+        }
+    });
+}
+
+function updateApp(id, field, value) {
+    state.applications = state.applications.map(a => a.id === id ? { ...a, [field]: value } : a);
+    save.apps();
+    if (field === 'status' || field === 'priority') renderTrackerStats();
+}
+
+function deleteApp(id) {
+    if (!confirm('确定删除这条投递记录吗？')) return;
+    state.applications = state.applications.filter(a => a.id !== id);
+    save.apps();
+    state.events = state.events.map(e => e.appId === id ? { ...e, appId: '' } : e);
+    save.events();
+    if (state.activeAppId === id) { state.activeAppId = null; save.activeApp(); renderBoundChip(); }
+    renderTracker();
+    updateBadges();
+}
+
+function renderTrackerStats() {
+    const apps = state.applications;
+    const active = apps.filter(a => a.status === '笔试中' || a.status === '面试中').length;
+    const offers = apps.filter(a => a.status === '已拿Offer').length;
+    const today = formatDateKey(new Date());
+    const week = state.events.filter(e => e.date >= today && e.date <= formatDateKey(new Date(Date.now() + 7 * 864e5))).length;
+    const stat = (label, value, color) => `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value" style="${color ? `color:${color}` : ''}">${value}</div></div>`;
+    $('tracker-stats').innerHTML =
+        stat('总投递', apps.length) +
+        stat('笔试 / 面试中', active, '#A76A00') +
+        stat('Offer', offers, '#13843F') +
+        stat('未来 7 天日程', week, '#D61F69');
+}
+
+const TRACKER_PAGE_SIZE = 8;
+const UPCOMING_PAGE_SIZE = 5;
+
+function renderTracker() {
+    renderTrackerStats();
+    const tbody = $('tracker-body');
+    const kw = $('search-track').value.trim().toLowerCase();
+    const st = $('filter-track').value;
+    const list = state.applications
+        .filter(a => (!kw || (a.company || '').toLowerCase().includes(kw) || (a.role || '').toLowerCase().includes(kw)) && (st === 'all' || a.status === st))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+    if (!state.applications.length) {
+        $('tracker-pager').innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="8"><div class="empty" style="padding:50px 20px;"><div class="empty-art">📮</div><h3>还没有投递记录</h3><p>点击右上角「新增投递」添加第一个意向岗位吧！</p></div></td></tr>`;
+        return;
+    }
+    if (!list.length) {
+        $('tracker-pager').innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px;">没有符合条件的记录</td></tr>`;
         return;
     }
 
-    // 🌟 锁定当前服务的看板岗位ID
-    state.activeAppId = appId; 
-
-    // 切换到“面试录音复盘”视图
-    const debriefMenuBtn = document.querySelector('[onclick*="view-debrief"]') || document.querySelector('[onclick*="debrief"]');
-    if (debriefMenuBtn) {
-        debriefMenuBtn.click();
-    } else {
-        document.querySelectorAll('div[id^="view-"]').forEach(view => view.classList.add('hidden'));
-        document.getElementById('view-debrief').classList.remove('hidden');
-    }
-
-    setTimeout(() => {
-        const companyInput = document.getElementById('debrief-company');
-        const roleInput = document.getElementById('debrief-role');
-        const jdInput = document.getElementById('debrief-jd');
-        const transcriptInput = document.getElementById('debrief-transcript');
-        const reportRaw = document.getElementById('debrief-report-raw');
-        const initialState = document.getElementById('debrief-initial-state');
-        
-        if (companyInput && roleInput) {
-            // 自动填充公司和岗位基本信息
-            companyInput.value = app.company || '';
-            roleInput.value = app.role || '';
-            
-            // 🌟 还原上一次你辛辛苦苦贴进去的录音初稿和 JD
-            if (jdInput) jdInput.value = app.debriefJD || localStorage.getItem(`debrief_jd_${appId}`) || '';
-            if (transcriptInput) transcriptInput.value = app.debriefTranscript || localStorage.getItem(`debrief_transcript_${appId}`) || '';
-            
-            // 🌟 还原上一次 AI 生成的高管级复盘报告
-            const savedReport = app.debriefReport || localStorage.getItem(`debrief_report_${appId}`);
-            
-            if (savedReport && reportRaw) {
-                if (initialState) initialState.classList.add('hidden');
-                if (window.marked && window.marked.parse) {
-                    reportRaw.innerHTML = window.marked.parse(savedReport);
-                } else {
-                    reportRaw.innerHTML = savedReport;
-                }
-            } else {
-                // 如果这个岗位从来没复盘过，展现默认的干净初始状态
-                if (initialState) initialState.classList.remove('hidden');
-                if (reportRaw) reportRaw.innerHTML = '';
-            }
-            
-            // 视觉动效与定位
-            companyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            companyInput.classList.add('ring-2', 'ring-rose-400');
-            roleInput.classList.add('ring-2', 'ring-rose-400');
-            setTimeout(() => {
-                companyInput.classList.remove('ring-2', 'ring-rose-400');
-                roleInput.classList.remove('ring-2', 'ring-rose-400');
-            }, 1500);
-        }
-    }, 100);
+    const pg = Pager.slice('tracker', list, TRACKER_PAGE_SIZE);
+    $('tracker-pager').innerHTML = Pager.bar('tracker', pg);
+    tbody.innerHTML = pg.items.map(a => {
+        const hasPrep = a.prepResults && Object.values(a.prepResults).some(Boolean);
+        const role = a.link
+            ? `<div class="flex items-center gap-1"><a href="${esc(a.link)}" target="_blank" rel="noopener" style="color:var(--ink);font-weight:600;text-decoration:none;" onmouseover="this.style.color='var(--violet)'" onmouseout="this.style.color='var(--ink)'">${esc(a.role)} ↗</a><button class="icon-btn" style="width:22px;height:22px;font-size:11px;" data-act="rename" title="改名">✏️</button></div>`
+            : `<div class="cell-edit" contenteditable="true" data-field="role" style="font-weight:600;">${esc(a.role)}</div>`;
+        return `<tr data-id="${a.id}">
+            <td style="font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;">${esc(a.date)}</td>
+            <td><div class="cell-edit" contenteditable="true" data-field="company" style="font-weight:800;">${esc(a.company)}</div></td>
+            <td>${role}</td>
+            <td><div class="cell-edit" contenteditable="true" data-field="base" style="color:var(--ink-2);">${esc(a.base || '—')}</div></td>
+            <td><select class="pill-select pr-${esc(a.priority || 'P1')}" data-field="priority">${['P0', 'P1', 'P2'].map(p => `<option ${(a.priority || 'P1') === p ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
+            <td><div class="cell-edit" contenteditable="true" data-field="salary" style="font-size:12px;color:var(--ink-2);">${esc(a.salary || '—')}</div></td>
+            <td><select class="pill-select ${statusCls(a.status)}" data-field="status">${STATUSES.map(s => `<option value="${s.v}" ${a.status === s.v ? 'selected' : ''}>${s.label}</option>`).join('')}</select></td>
+            <td style="white-space:nowrap;text-align:right;">
+                <button class="btn ${hasPrep ? 'btn-soft' : 'btn-primary'} btn-xs" data-act="prep">${hasPrep ? '📂 查看备战' : '🚀 备战'}</button>
+                <button class="icon-btn" data-act="event" title="添加日程">📅</button>
+                <button class="icon-btn" data-act="debrief" title="面试复盘">🎙️</button>
+                <button class="icon-btn danger" data-act="delete" title="删除">🗑️</button>
+            </td>
+        </tr>`;
+    }).join('');
 }
-/**
- * 🌟 新增：行内即时同步修改数据
- * @param {string} appId 岗位记录ID
- * @param {string} field 修改的字段名名 (company, role, base, salary, priority)
- * @param {string} value 修改后的新内容
- */
-function updateAppField(appId, field, value) {
+
+// ================================================================
+// 日程
+// ================================================================
+const EVENT_CLS = { '面试': 'type-interview', '笔试': 'type-oa', '其他': 'type-other' };
+const EVENT_ICO = { '面试': '🎙️', '笔试': '📝', '其他': '📌' };
+const DOW = ['一', '二', '三', '四', '五', '六', '日'];
+const ROW_H = 52;
+
+function bindCalendar() {
+    $('btn-cal-prev').onclick = () => shiftCal(-1);
+    $('btn-cal-next').onclick = () => shiftCal(1);
+    $('btn-cal-today').onclick = () => { state.calDate = new Date(); renderCalendar(); };
+    document.querySelectorAll('.seg [data-mode]').forEach(b => b.onclick = () => {
+        state.calMode = b.dataset.mode;
+        Store.set('ui', { ...Store.get('ui', {}), calMode: state.calMode });
+        delete $('cal-week-scroll').dataset.scrolled;
+        renderCalendar();
+    });
+    $('btn-add-event').onclick = () => openEventModal(null);
+    Pager.register('upcoming', renderUpcoming);
+    $('btn-save-event').onclick = saveEvent;
+    $('btn-delete-event').onclick = deleteEvent;
+    $('event-start').addEventListener('change', () => {
+        if ($('event-start').value && !$('event-end').value) $('event-end').value = addHour($('event-start').value);
+    });
+}
+
+function shiftCal(n) {
+    const d = state.calDate;
+    state.calDate = state.calMode === 'week' ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + n * 7) : new Date(d.getFullYear(), d.getMonth() + n, 1);
+    renderCalendar();
+}
+
+const addHour = (t) => { const [h, m] = t.split(':').map(Number); return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
+
+function conflictsOn(dateKey) {
+    const list = state.events.filter(e => e.date === dateKey && e.startTime);
+    const ids = new Set();
+    const end = (e) => (e.endTime && e.endTime > e.startTime ? e.endTime : addHour(e.startTime));
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (a.startTime < end(b) && b.startTime < end(a)) { ids.add(a.id); ids.add(b.id); }
+    }
+    return ids;
+}
+
+function renderCalendar() {
+    document.querySelectorAll('.seg [data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === state.calMode));
+    $('cal-month').classList.toggle('hidden', state.calMode !== 'month');
+    $('cal-week').classList.toggle('hidden', state.calMode !== 'week');
+    state.calMode === 'week' ? renderWeek() : renderMonth();
+}
+
+function renderMonth() {
+    const d = state.calDate, y = d.getFullYear(), m = d.getMonth();
+    $('cal-label').textContent = `${y} 年 ${m + 1} 月`;
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;
+    const days = new Date(y, m + 1, 0).getDate();
+    const prevDays = new Date(y, m, 0).getDate();
+    const today = formatDateKey(new Date());
+    const cells = [];
+    for (let i = 0; i < first; i++) cells.push({ n: prevDays - first + i + 1, other: true });
+    for (let i = 1; i <= days; i++) cells.push({ n: i, key: formatDateKey(new Date(y, m, i)) });
+    while (cells.length % 7) cells.push({ n: cells.length - first - days + 1, other: true });
+
+    $('cal-grid').innerHTML = cells.map(c => {
+        if (c.other) return `<div class="cal-day cal-day-other"><span class="cal-num">${c.n}</span></div>`;
+        const evs = state.events.filter(e => e.date === c.key).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+        const cf = conflictsOn(c.key);
+        const pills = evs.slice(0, 3).map(e => `<div class="ev-pill ${EVENT_CLS[e.type] || 'type-other'} ${cf.has(e.id) ? 'has-conflict' : ''}" data-ev="${e.id}" title="${esc(e.title)}${cf.has(e.id) ? ' ⚠ 时间冲突' : ''}">${e.startTime ? e.startTime + ' ' : ''}${esc(e.title)}</div>`).join('');
+        const more = evs.length > 3 ? `<div style="font-size:10px;color:var(--muted);font-weight:700;padding:0 4px;">+${evs.length - 3}</div>` : '';
+        return `<div class="cal-day ${c.key === today ? 'cal-day-today' : 'cal-day-current'}" data-date="${c.key}"><span class="cal-num">${c.n}</span>${pills}${more}</div>`;
+    }).join('');
+
+    $('cal-grid').onclick = (e) => {
+        const ev = e.target.closest('[data-ev]');
+        if (ev) return openEventModal(ev.dataset.ev);
+        const day = e.target.closest('[data-date]');
+        if (day) openEventModal(null, day.dataset.date);
+    };
+}
+
+function weekDates(ref) {
+    const d = new Date(ref), w = (d.getDay() + 6) % 7;
+    return Array.from({ length: 7 }, (_, i) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - w + i));
+}
+
+function renderWeek() {
+    const days = weekDates(state.calDate);
+    const today = formatDateKey(new Date());
+    const [f, l] = [days[0], days[6]];
+    $('cal-label').textContent = f.getMonth() === l.getMonth()
+        ? `${f.getMonth() + 1}月${f.getDate()}日 – ${l.getDate()}日`
+        : `${f.getMonth() + 1}月${f.getDate()}日 – ${l.getMonth() + 1}月${l.getDate()}日`;
+
+    $('cal-week-head').innerHTML = '<div></div>' + days.map((d, i) => `<div class="week-head ${formatDateKey(d) === today ? 'today' : ''}"><div class="dow">周${DOW[i]}</div><div class="num">${d.getDate()}</div></div>`).join('');
+
+    let html = '<div>' + Array.from({ length: 24 }, (_, h) => `<div class="week-hour-row" style="border-bottom-color:transparent;"><div class="week-time-label">${h ? String(h).padStart(2, '0') + ':00' : ''}</div></div>`).join('') + '</div>';
+    days.forEach(d => {
+        const key = formatDateKey(d);
+        const cf = conflictsOn(key);
+        let col = `<div class="week-day-col ${key === today ? 'today' : ''}" style="height:${24 * ROW_H}px;">`;
+        for (let h = 0; h < 24; h++) col += `<div class="week-hour-cell" data-date="${key}" data-time="${String(h).padStart(2, '0')}:00"></div>`;
+        if (key === today) {
+            const now = new Date();
+            col += `<div class="now-line" style="top:${(now.getHours() * 60 + now.getMinutes()) / 60 * ROW_H}px;"></div>`;
+        }
+        state.events.filter(e => e.date === key && e.startTime).forEach(e => {
+            const [sh, sm] = e.startTime.split(':').map(Number);
+            const s = sh * 60 + sm;
+            let en = s + 60;
+            if (e.endTime) { const [eh, em] = e.endTime.split(':').map(Number); if (eh * 60 + em > s) en = eh * 60 + em; }
+            col += `<div class="week-ev ${EVENT_CLS[e.type] || 'type-other'} ${cf.has(e.id) ? 'has-conflict' : ''}" data-ev="${e.id}" style="top:${s / 60 * ROW_H}px;height:${Math.max((en - s) / 60 * ROW_H, 24)}px;">${EVENT_ICO[e.type] || ''} ${esc(e.title)}<br><span style="opacity:.75;font-weight:600;">${e.startTime}${e.endTime ? '–' + e.endTime : ''}</span></div>`;
+        });
+        html += col + '</div>';
+    });
+    $('cal-week-grid').innerHTML = html;
+    $('cal-week-grid').onclick = (e) => {
+        const ev = e.target.closest('[data-ev]');
+        if (ev) return openEventModal(ev.dataset.ev);
+        const c = e.target.closest('[data-time]');
+        if (c) openEventModal(null, c.dataset.date, c.dataset.time);
+    };
+    const sc = $('cal-week-scroll');
+    if (!sc.dataset.scrolled) { sc.scrollTop = Math.max((new Date().getHours() - 2) * ROW_H, 0); sc.dataset.scrolled = '1'; }
+}
+
+function renderUpcoming() {
+    const today = formatDateKey(new Date());
+    const list = state.events.filter(e => e.date >= today).sort((a, b) => (a.date + (a.startTime || '00:00')).localeCompare(b.date + (b.startTime || '00:00')));
+    const box = $('upcoming-list');
+    if (!list.length) {
+        box.innerHTML = `<div class="empty" style="padding:40px 10px;"><div class="empty-art" style="width:64px;height:64px;font-size:28px;">🗓️</div><h3>暂无日程</h3><p>点击右上角或日历空白处新增。</p></div>`;
+        $('upcoming-pager').innerHTML = '';
+        return;
+    }
+    const pg = Pager.slice('upcoming', list, UPCOMING_PAGE_SIZE);
+    $('upcoming-pager').innerHTML = Pager.bar('upcoming', pg, { compact: true, unit: '项' });
+    box.innerHTML = pg.items.map(e => {
+        const cf = conflictsOn(e.date).has(e.id);
+        const app = e.appId && state.applications.find(a => a.id === e.appId);
+        const [y, m, d] = e.date.split('-');
+        return `<div class="upcoming ${cf ? 'has-conflict' : ''}" data-ev="${e.id}">
+            <div class="date-badge"><div class="m">${Number(m)}月</div><div class="d">${Number(d)}</div></div>
+            <div style="min-width:0;flex:1;">
+                <div style="font-size:13px;font-weight:800;">${EVENT_ICO[e.type] || ''} ${esc(e.title)}</div>
+                <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;">${e.startTime ? e.startTime + (e.endTime ? ' – ' + e.endTime : '') : '时间待定'}${cf ? ' · <span style="color:#E11D48;">⚠ 时间冲突</span>' : ''}</div>
+                ${app ? `<div style="margin-top:6px;"><span class="chip chip-pink" style="font-size:10px;">🔗 ${esc(app.company)} · ${esc(app.role)}</span></div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+    box.onclick = (ev) => { const c = ev.target.closest('[data-ev]'); if (c) openEventModal(c.dataset.ev); };
+}
+
+function fillEventAppOptions(sel) {
+    $('event-app').innerHTML = '<option value="">不关联</option>' + state.applications.map(a => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${esc(a.company)} · ${esc(a.role)}</option>`).join('');
+}
+
+function openEventModal(id, date, time) {
+    const ev = id && state.events.find(e => e.id === id);
+    $('event-modal-title').textContent = ev ? '编辑日程' : '新增日程';
+    $('event-id').value = ev ? ev.id : '';
+    $('event-title').value = ev ? ev.title : '';
+    $('event-date').value = ev ? ev.date : (date || formatDateKey(new Date()));
+    $('event-type').value = ev ? ev.type : '面试';
+    $('event-start').value = ev ? (ev.startTime || '') : (time || '');
+    $('event-end').value = ev ? (ev.endTime || '') : (time ? addHour(time) : '');
+    $('event-notes').value = ev ? (ev.notes || '') : '';
+    fillEventAppOptions(ev ? ev.appId : '');
+    $('btn-delete-event').classList.toggle('hidden', !ev);
+    openModal('event-modal');
+    setTimeout(() => { if (document.activeElement === document.body) $('event-title').focus(); }, 50);
+}
+
+function openEventModalForApp(appId) {
+    const app = state.applications.find(a => a.id === appId);
+    switchView('calendar');
+    openEventModal(null);
+    $('event-app').value = appId;
+    if (app) $('event-title').value = `${app.company} · ${app.role}`;
+}
+
+function saveEvent() {
+    const ev = {
+        id: $('event-id').value || uid('evt'),
+        title: $('event-title').value.trim(), date: $('event-date').value, type: $('event-type').value,
+        startTime: $('event-start').value, endTime: $('event-end').value, appId: $('event-app').value, notes: $('event-notes').value.trim()
+    };
+    if (!ev.title || !ev.date) return toast('请填写标题和日期', 'err');
+    const i = state.events.findIndex(e => e.id === ev.id);
+    if (i >= 0) state.events[i] = ev; else state.events.push(ev);
+    save.events();
+    closeModal('event-modal');
+    renderCalendar(); renderUpcoming(); updateBadges(); renderTrackerStats();
+    if (conflictsOn(ev.date).has(ev.id)) toast('已保存，但与其他日程时间冲突', 'err');
+    else toast('日程已保存');
+}
+
+function deleteEvent() {
+    const id = $('event-id').value;
+    if (!id || !confirm('确定删除这条日程吗？')) return;
+    state.events = state.events.filter(e => e.id !== id);
+    save.events();
+    closeModal('event-modal');
+    renderCalendar(); renderUpcoming(); updateBadges(); renderTrackerStats();
+}
+
+// ================================================================
+// 面试复盘
+// ================================================================
+function bindDebrief() {
+    $('btn-run-debrief').addEventListener('click', runDebrief);
+    $('btn-copy-debrief').addEventListener('click', () => {
+        const d = Store.get('debrief', null);
+        if (!d || !d.report) return toast('还没有复盘报告', 'err');
+        navigator.clipboard.writeText(d.report).then(() => toast('已复制'));
+    });
+    $('btn-clear-debrief').addEventListener('click', () => {
+        if (!confirm('确定清空当前复盘报告吗？')) return;
+        Store.set('debrief', null);
+        Pager.renderReport('debrief-report', '');
+        $('debrief-empty').classList.remove('hidden');
+    });
+}
+
+function restoreDebrief() {
+    const d = Store.get('debrief', null);
+    $('debrief-company').value = d?.company || '';
+    $('debrief-role').value = d?.role || '';
+    $('debrief-jd').value = d?.jd || '';
+    $('debrief-transcript').value = d?.transcript || '';
+    Pager.renderReport('debrief-report', d?.report || '', { reset: true });
+    $('debrief-empty').classList.toggle('hidden', !!d?.report);
+    state.debriefAppId = d?.appId || null;
+}
+
+async function runDebrief() {
+    if (!requireApiKey()) return;
+    const company = $('debrief-company').value.trim();
+    const role = $('debrief-role').value.trim();
+    const jd = $('debrief-jd').value.trim();
+    const transcript = $('debrief-transcript').value.trim();
+    if (!company || !role || !transcript) return toast('请填写公司、岗位，并贴入录音文本', 'err');
+
+    Loader.open('AI 面试官正在复盘', '通常需要 30-90 秒', []);
+    Loader.log(`▶ 开始复盘【${company} · ${role}】`);
+    try {
+        const report = await callLLM(window.PromptTemplates.interviewDebrief(company, role, jd, transcript), {
+            onRetry: (n, s) => Loader.log(`⏳ 调用异常，${s} 秒后第 ${n} 次重试`)
+        });
+        const appId = state.debriefAppId;
+        Store.set('debrief', { company, role, jd, transcript, report, appId });
+        if (appId) {
+            state.applications = state.applications.map(a => a.id === appId ? { ...a, debrief: { jd, transcript, report } } : a);
+            save.apps();
+        }
+        $('debrief-empty').classList.add('hidden');
+        Pager.renderReport('debrief-report', report, { reset: true });
+        Loader.log('✔ 复盘完成');
+        Loader.close();
+        toast('复盘报告已生成');
+    } catch (err) {
+        Loader.log(`✖ 失败：${err.message}`);
+        Loader.close(2200);
+        toast(err.message, 'err', 4000);
+    }
+}
+
+function startDebriefFromApp(appId) {
     const app = state.applications.find(a => a.id === appId);
     if (!app) return;
-
-    // 清洗一下用户直接回车或者不小心多打的空格
-    let cleanValue = value.replace(/[\r\n]/g, "").trim();
-    if (cleanValue === '—') cleanValue = ''; // 恢复占位符
-
-    // 赋值修改
-    app[field] = cleanValue;
-
-    // 持久化到浏览器缓存
-    localStorage.setItem('interview_prep_apps', JSON.stringify(state.applications));
-    console.log(`[看板同步] 成功将岗位 ID ${appId} 的 ${field} 字段修改为: ${cleanValue}`);
-}
-
-/**
- * 🌟 新增：针对有超链接的岗位名，点击小铅笔弹窗直接改名字
- */
-function inlineEditPrompt(appId, field, currentValue) {
-    const newValue = prompt("请输入修改后的岗位名称：", currentValue);
-    if (newValue !== null && newValue.trim() !== "") {
-        updateAppField(appId, field, newValue);
-        renderApplications(); // 有链接的重新刷新渲染界面
-    }
+    state.debriefAppId = appId;
+    const d = app.debrief || {
+        jd: app.debriefJD, transcript: app.debriefTranscript, report: app.debriefReport // 兼容旧版字段
+    };
+    $('debrief-company').value = app.company || '';
+    $('debrief-role').value = app.role || '';
+    $('debrief-jd').value = d.jd || app.jd || '';
+    $('debrief-transcript').value = d.transcript || '';
+    Pager.renderReport('debrief-report', d.report || '', { reset: true });
+    $('debrief-empty').classList.toggle('hidden', !!d.report);
+    Store.set('debrief', { company: app.company, role: app.role, jd: d.jd || app.jd || '', transcript: d.transcript || '', report: d.report || '', appId });
+    switchView('debrief');
 }

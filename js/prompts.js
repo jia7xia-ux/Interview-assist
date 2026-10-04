@@ -1,4 +1,4 @@
-const PromptTemplates = {
+var PromptTemplates = {
     resumeSelection: (resumes, jd, region, language) => `
 你现在是一位拥有10年以上经验的资深大厂招聘经理与职业导师。
 请严格根据用户提供的 Job Description (JD) 以及多版本简历列表，进行深度匹配分析与版本推荐。
@@ -148,6 +148,36 @@ ${transcript}
 【规范要求】
 - 请保持专业、严厉、直击痛点的语气，严禁假大空的客套话。
 - 涉及数据、业务逻辑时，必须切中该岗位（如策略、分析、产品运营）的行业黑话与专业心智。
+`;
+
+// 简历结构化解析（要求模型只输出 JSON）
+PromptTemplates.resumeParse = (rawText) => `
+你是一名专业的简历解析引擎。下面是从 PDF 中提取的简历原始文本（可能存在换行错乱、双栏交错、多余空格等问题）。
+请把它还原并解析为结构化 JSON。
+
+【硬性规则】
+1. 只输出一个合法 JSON 对象，不要输出任何解释文字，不要使用 Markdown 代码块。
+2. 严格忠于原文：不得编造、不得润色、不得增删任何数字与事实；原文是什么语言就保留什么语言。
+3. 原文中没有的字段填空字符串 "" 或空数组 []。
+4. 时间统一写成 "YYYY.MM" 格式（只有年份就写 "YYYY"；至今写 "至今" 或 "Present"，与原文语言一致）。
+5. bullets 中每一条对应原文中的一条描述，修复被错误断行的句子，去掉行首的 •、-、· 等符号。
+6. tags 字段：根据经历内容，给出 2-4 个这份简历的求职定位标签（如 "策略运营"、"数据分析"、"产品运营"）。
+
+【JSON 结构】
+{
+  "basics": { "name": "", "title": "", "email": "", "phone": "", "location": "", "links": [] },
+  "summary": "",
+  "education": [ { "school": "", "degree": "", "major": "", "start": "", "end": "", "gpa": "", "highlights": [] } ],
+  "experience": [ { "company": "", "role": "", "location": "", "start": "", "end": "", "bullets": [] } ],
+  "projects": [ { "name": "", "role": "", "start": "", "end": "", "bullets": [] } ],
+  "skills": [ { "category": "", "items": [] } ],
+  "awards": [],
+  "languages": [],
+  "tags": []
+}
+
+【简历原始文本】
+${rawText}
 `;
 
 window.PromptTemplates = PromptTemplates;
