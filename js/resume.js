@@ -93,15 +93,46 @@ const Resume = (() => {
     }
 
     // ---------------- PDF 提取 ----------------
+    // 中文 PDF（尤其是 LaTeX/ctex、Word 导出的 Adobe-GB1 字体）必须加载 CMap 才能还原汉字，
+    // 否则所有中文都会丢失，只剩英文和数字。这里准备多个 CDN，依次探测，哪个能用就用哪个。
+    const PDFJS_VERSION = '3.11.174';
+    const CMAP_SOURCES = [
+        `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/`,
+        `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/`,
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/`
+    ];
+    let cmapBase = null;
+
+    async function pickCmapBase() {
+        if (cmapBase) return cmapBase;
+        for (const base of CMAP_SOURCES) {
+            try {
+                const res = await fetch(base + 'cmaps/Adobe-GB1-UCS2.bcmap', { cache: 'force-cache' });
+                if (res.ok && (await res.arrayBuffer()).byteLength > 100) { cmapBase = base; return base; }
+            } catch (e) { /* 换下一个源 */ }
+        }
+        return null;
+    }
+
+    async function readPdf(data, base) {
+        const opts = { data };
+        if (base) Object.assign(opts, { cMapUrl: base + 'cmaps/', cMapPacked: true, standardFontDataUrl: base + 'standard_fonts/' });
+        return pdfjsLib.getDocument(opts).promise;
+    }
+
+    // 中文简历却几乎没有汉字、大量只剩符号的行 → 判定为字体映射缺失导致的乱码
+    function looksBroken(text) {
+        const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+        const lines = text.split('\n').filter(Boolean);
+        const hollow = lines.filter(l => !/[A-Za-z\u4e00-\u9fff]{2,}/.test(l)).length;
+        return cjk < 5 && lines.length > 8 && hollow / lines.length > 0.35;
+    }
+
     async function extract(file, onProgress) {
         if (!window.pdfjsLib) throw new Error('PDF 解析库未加载，请检查网络后刷新');
-        // 中文 PDF 常用 CID 字体，必须加载 CMap 才能正确提取文字
-        const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
-        const pdf = await pdfjsLib.getDocument({
-            data: await file.arrayBuffer(),
-            cMapUrl: PDFJS_CDN + 'cmaps/', cMapPacked: true,
-            standardFontDataUrl: PDFJS_CDN + 'standard_fonts/'
-        }).promise;
+        const buf = await file.arrayBuffer();
+        const base = await pickCmapBase();
+        const pdf = await readPdf(new Uint8Array(buf.slice(0)), base);
         const pageTexts = [];
         for (let p = 1; p <= pdf.numPages; p++) {
             const page = await pdf.getPage(p);
@@ -111,7 +142,8 @@ const Resume = (() => {
         }
         let thumb = '';
         try { thumb = await renderThumb(await pdf.getPage(1)); } catch (e) { /* 缩略图失败不影响主流程 */ }
-        return { text: pageTexts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim(), pages: pdf.numPages, thumb };
+        const text = pageTexts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+        return { text, pages: pdf.numPages, thumb, broken: looksBroken(text), cmapOk: !!base };
     }
 
     // 按 y 坐标把文本块归并成行，再按 x 排序拼接，比直接 join(' ') 更接近原排版
@@ -204,10 +236,17 @@ const Resume = (() => {
         if (file.size > MAX_MB * 1024 * 1024) return toast(`文件超过 ${MAX_MB}MB`, 'err');
         try {
             setProgress(`正在读取「${file.name}」`, 0.05);
-            const { text, pages, thumb } = await extract(file, p => setProgress(`正在提取文字 · 第 ${Math.ceil(p * 100)}%`, 0.05 + p * 0.85));
+            const { text, pages, thumb, broken, cmapOk } = await extract(file, p => setProgress(`正在提取文字 · 第 ${Math.ceil(p * 100)}%`, 0.05 + p * 0.85));
             if (!text) {
                 setProgress(null);
                 return toast('这份 PDF 是图片扫描版，提取不到文字。请在「手动新建」中粘贴文本', 'err', 5000);
+            }
+            if (broken) {
+                setProgress(null);
+                toast(cmapOk
+                    ? '这份 PDF 的中文字体无法识别，请在「原文」里粘贴简历文字后再解析'
+                    : '中文字体映射文件加载失败（网络问题），请刷新页面后重新上传', 'err', 6000);
+                if (!cmapOk) return;
             }
             setProgress('提取完成', 1);
             const r = normalize({ name: file.name.replace(/\.pdf$/i, ''), fileName: file.name, content: text, pages, thumb });
@@ -215,12 +254,12 @@ const Resume = (() => {
             save.resumes();
             selectedId = r.id;
             editing = false;
-            detailTab = 'parsed';
+            detailTab = broken ? 'raw' : 'parsed';
             secIndex = 0;
             Pager.reset('resumes');
             setTimeout(() => setProgress(null), 600);
             renderAll();
-            aiParse(r.id);
+            if (!broken) aiParse(r.id); // 乱码就不浪费 AI 调用，先让用户在原文里修正
         } catch (err) {
             console.error(err);
             setProgress(null);
